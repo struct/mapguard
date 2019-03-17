@@ -161,16 +161,15 @@ int munmap(void *addr, size_t length) {
 	if(g_mapguard_policy.use_mapping_cache) {
 		mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
 
-		if(mce) {
-			if(mce->has_guard) {
-				/* If these fail we just leak pages */
-				g_real_munmap(mce->guard_bottom, g_page_size);
-				g_real_munmap(mce->guard_top, g_page_size);
-
-				LOG("Unmapped guard pages %p and %p", mce->guard_bottom, mce->guard_top);
-			}
-
+		if(mce && mce->has_guard) {
 			LOG("Found mapguard cache entry for mapping %p", mce->start);
+
+			/* If these fail we just leak pages */
+			g_real_munmap(mce->guard_bottom, g_page_size);
+			g_real_munmap(mce->guard_top, g_page_size);
+
+			LOG("Unmapped guard pages %p and %p", mce->guard_bottom, mce->guard_top);
+
 			vector_delete_at(&g_map_cache_vector, mce->cache_index);
 			free(mce);
 		}
