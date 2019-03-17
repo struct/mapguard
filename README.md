@@ -63,13 +63,13 @@ clang -Wall -fPIE -fPIC  -DDEBUG -ggdb mapguard_test.c vector.c -o ../build/mapg
 Or run your own program with the library:
 
 ```
-MG_PANIC_ON_VIOLATION=0 	 \
-MG_USE_MAPPING_CACHE=1 		 \
-MG_DISALLOW_RWX=1 			 \
-MG_DISALLOW_STATIC_ADDRESS=1 \
-MG_ENABLE_GUARD_PAGES=1 	 \
-MG_DISALLOW_X_TRANSITION=1   \
-MG_POISON_ON_ALLOCATION=1	 \
+MG_PANIC_ON_VIOLATION=0			\
+MG_USE_MAPPING_CACHE=1			\
+MG_DISALLOW_RWX=1				\
+MG_DISALLOW_STATIC_ADDRESS=1	\
+MG_ENABLE_GUARD_PAGES=1			\
+MG_DISALLOW_X_TRANSITION=1		\
+MG_POISON_ON_ALLOCATION=1		\
 LD_PRELOAD=build/mapguard.so ./your_program
 ```
 
