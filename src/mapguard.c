@@ -8,6 +8,7 @@ __attribute__((constructor)) void mapguard_ctor() {
 	 * variables during DSO load time only */
 	ENV_TO_INT(MG_DISALLOW_RWX, g_mapguard_policy.disallow_rwx);
 	ENV_TO_INT(MG_DISALLOW_X_TRANSITION, g_mapguard_policy.disallow_x_transition);
+	ENV_TO_INT(MG_DISALLOW_TRANSITION_FROM_X, g_mapguard_policy.disallow_transition_from_x);
 	ENV_TO_INT(MG_DISALLOW_STATIC_ADDRESS, g_mapguard_policy.disallow_static_address);
 	ENV_TO_INT(MG_ENABLE_GUARD_PAGES, g_mapguard_policy.enable_guard_pages);
 	ENV_TO_INT(MG_PANIC_ON_VIOLATION, g_mapguard_policy.panic_on_violation);
@@ -60,7 +61,6 @@ void *get_base_page(void *addr) {
 /* Checks if we have a cache entry for this mapping */
 void *is_mapguard_entry_cached(void *p, void *data) {
 	mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) p;
-
 	if(mce->start == data) {
 		return mce;
 	}
@@ -143,12 +143,12 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 	 * the caller just allocated. Calculating where space is available
 	 * for 2 guard pages and the user requested allocation creates too
 	 * much of a performance impact */
-	if(g_mapguard_policy.enable_guard_pages) {
+	if(g_mapguard_policy.enable_guard_pages && mce) {
 		map_guard_pages(mce);
 	}
 
-	/* Set all bytes in the allocation if configured */
-	if(g_mapguard_policy.poison_on_allocation) {
+	/* Set all bytes in the allocation if configured and pages are writeable */
+	if(g_mapguard_policy.poison_on_allocation && (prot & PROT_WRITE)) {
 		memset(map_ptr, MG_POISON_BYTE, length);
 	}
 
@@ -161,14 +161,16 @@ int munmap(void *addr, size_t length) {
 	if(g_mapguard_policy.use_mapping_cache) {
 		mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
 
-		if(mce && mce->has_guard) {
+		if(mce) {
 			LOG("Found mapguard cache entry for mapping %p", mce->start);
 
 			/* If these fail we just leak pages */
-			g_real_munmap(mce->guard_bottom, g_page_size);
-			g_real_munmap(mce->guard_top, g_page_size);
-
-			LOG("Unmapped guard pages %p and %p", mce->guard_bottom, mce->guard_top);
+			if(mce->has_guard) {
+				g_real_munmap(mce->guard_bottom, g_page_size);
+				g_real_munmap(mce->guard_top, g_page_size);
+				LOG("Unmapped guard pages %p and %p", mce->guard_bottom, mce->guard_top);
+				LOG("Deleting cache entry for %p", mce->start);
+			}
 
 			vector_delete_at(&g_map_cache_vector, mce->cache_index);
 			free(mce);
@@ -180,19 +182,43 @@ int munmap(void *addr, size_t length) {
 
 /* Hook mprotect in libc */
 int mprotect(void *addr, size_t len, int prot) {
-	/* Disallow transition to X (requires the mapping cache) */
-	if(g_mapguard_policy.use_mapping_cache && g_mapguard_policy.disallow_x_transition && (prot & PROT_EXEC)) {
-		mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
+	mapguard_cache_entry_t *mce = NULL;
 
-		if(mce && (mce->prot & PROT_WRITE)) {
-			MAYBE_PANIC
-			LOG("Cannot allow mapping %p to be set PROT_EXEC", addr);
-			errno = EINVAL;
-			return ERROR;
+	/* Disallow transition to/from X (requires the mapping cache) */
+	if(g_mapguard_policy.use_mapping_cache) {
+		mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
+
+		if(mce != NULL) {
+			if(g_mapguard_policy.disallow_x_transition && (prot & PROT_EXEC) && (mce->prot & PROT_WRITE)) {
+				LOG("Cannot allow mapping %p to be set PROT_EXEC", addr);
+				MAYBE_PANIC
+				errno = EINVAL;
+				return ERROR;
+			}
+
+			if(g_mapguard_policy.disallow_transition_from_x && (prot & PROT_WRITE) && (mce->prot & PROT_EXEC)) {
+				LOG("Cannot allow mapping %p to transition from PROT_EXEC to PROT_WRITE", addr);
+				MAYBE_PANIC
+				errno = EINVAL;
+				return ERROR;
+			}
 		}
 	}
 
-	return g_real_mprotect(addr, len, prot);
+	int32_t ret = g_real_mprotect(addr, len, prot);
+
+	if(ret == 0 && mce) {
+		/* Its possible the caller changed the protections on
+		 * only a portion of the mapping. Log it but ignore it */
+		if(mce->size != len) {
+			LOG("Cached mapping size %zu bytes but mprotected %zu bytes", mce->size, len);
+		}
+
+		/* Update the saved page permissions, even if the size doesn't match */
+		mce->prot = prot;
+	}
+
+	return ret;
 }
 
 /* Hook mremap in libc */

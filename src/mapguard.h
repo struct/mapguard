@@ -38,6 +38,8 @@
 #define MG_DISALLOW_RWX "MG_DISALLOW_RWX"
 /* Disallows RW allocations to ever transition to PROT_EXEC */
 #define MG_DISALLOW_X_TRANSITION "MG_DISALLOW_X_TRANSITION"
+/* Disallows X allocations to ever transition to PROT_WRITE */
+#define MG_DISALLOW_TRANSITION_FROM_X "MG_DISALLOW_TRANSITION_FROM_X"
 /* Disallows page allocations at a set address (enforces ASLR) */
 #define MG_DISALLOW_STATIC_ADDRESS "MG_DISALLOW_STATIC_ADDRESS"
 /* Force top and bottom guard page allocations */
@@ -66,6 +68,7 @@
 typedef struct {
 	int disallow_rwx;
 	int disallow_x_transition;
+	int disallow_transition_from_x;
 	int disallow_static_address;
 	int enable_guard_pages;
 	int panic_on_violation;

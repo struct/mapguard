@@ -5,6 +5,7 @@ Map Guard is a proof of concept memory safety exploit mitigation that protects m
 ```
 MG_DISALLOW_RWX - Disallows PROT_READ, PROT_WRITE, PROT_EXEC mappings
 MG_DISALLOW_X_TRANSITION - Disallows RW allocations to ever transition to PROT_EXEC
+MG_DISALLOW_TRANSITION_FROM_X - Disallows R-X allocations to ever transition to PROT_WRITE
 MG_DISALLOW_STATIC_ADDRESS - Disallows page allocations at a set address (enforces ASLR)
 MG_ENABLE_GUARD_PAGES - Force top and bottom guard page allocations
 MG_PANIC_ON_VIOLATION - Instructs Map Guard to abort the process when these policies are violated
@@ -25,39 +26,56 @@ mkdir -p ../build/
 clang -Wall -fPIC -shared -ldl -DDEBUG -ggdb mapguard.c vector.c -o ../build/mapguard.so
 mkdir -p ../build/
 clang -Wall -fPIE -fPIC  -DDEBUG -ggdb mapguard_test.c vector.c -o ../build/mapguard_test
-[LOG][2415](map_guard_pages) Successfully allocated bottom guard page: [(guard) 0x7f3122bdd000 | 0x7f3122bde000]
-[LOG][2415](map_guard_pages) Failed to map top guard page @ 0x7f3122be2000. Mapped @ 0x7f3122bdc000
-[LOG][2415](map_memory) Successfully mmapped RW memory @ 0x7f3122bde000
-[LOG][2415](map_rw_memory) Test passed
-[LOG][2415](munmap) Unmapped guard pages 0x7f3122bdd000 and 0x7f3122bdc000
-[LOG][2415](munmap) Found mapguard cache entry for mapping 0x7f3122bde000
-[LOG][2415](unmap_memory) Successfully munmapped memory @ 0x7f3122bde000
-[LOG][2415](mmap) Disallowing RWX memory allocation
-[LOG][2415](map_memory) Failed to map RWX memory
-[LOG][2415](map_rwx_memory) Test passed
-[LOG][2415](map_guard_pages) Successfully allocated bottom guard page: [(guard) 0x7f3122bda000 | 0x7f3122bdb000]
-[LOG][2415](map_guard_pages) Failed to map top guard page @ 0x7f3122bdf000. Mapped @ 0x7f3122bd6000
-[LOG][2415](map_memory) Successfully mmapped RW memory @ 0x7f3122bdb000
-[LOG][2415](mprotect) Cannot allow mapping 0x7f3122bdb000 to be set PROT_EXEC
-[LOG][2415](map_rw_then_x_memory) Test passed
-[LOG][2415](munmap) Unmapped guard pages 0x7f3122bda000 and 0x7f3122bd6000
-[LOG][2415](munmap) Found mapguard cache entry for mapping 0x7f3122bdb000
-[LOG][2415](unmap_memory) Successfully munmapped memory @ 0x7f3122bdb000
-[LOG][2415](map_guard_pages) Successfully allocated bottom guard page: [(guard) 0x7f3122bd2000 | 0x7f3122bd3000]
-[LOG][2415](map_guard_pages) Successfully allocated top guard page: [0x7f3122bd3000 | 0x7f3122bdb000 (guard)]
-[LOG][2415](map_memory) Successfully mmapped RW memory @ 0x7f3122bd3000
-[LOG][2415](remap_memory) Old memory Remap @ 0x7f3122bd3000
-[LOG][2415](remap_memory) Successfully remapped Remap memory 0x7f3122bd3000 @ 0x7f3122bd0000
-[LOG][2415](map_then_mremap) Test passed
-[LOG][2415](unmap_remapped_memory) Successfully munmapped remapped memory @ 0x7f3122bd0000
-[LOG][2415](mmap) Disallowing memory allocation at static address 0x7f3bffaaa000
-[LOG][2415](map_static_address) Test passed
-[LOG][2415](unmap_memory) Failed to munmap memory @ 0xffffffffffffffff
-[LOG][2415](map_guard_pages) Successfully allocated bottom guard page: [(guard) 0x7f3122bcd000 | 0x7f3122bce000]
-[LOG][2415](map_guard_pages) Successfully allocated top guard page: [0x7f3122bce000 | 0x7f3122bda000 (guard)]
-[LOG][2415](map_memory) Successfully mmapped Poison Bytes memory @ 0x7f3122bce000
-[LOG][2415](check_poison_bytes) Test passed
-[LOG][2415](unmap_memory) Successfully munmapped memory @ 0x7f3122bce000
+[LOG][67059](map_guard_pages) Successfully allocated bottom guard page: [(guard) 0x7fb9e2516000 | 0x7fb9e2517000]
+[LOG][67059](map_guard_pages) Failed to map top guard page @ 0x7fb9e2518000. Mapped @ 0x7fb9e2515000
+[LOG][67059](map_memory) Successfully mmapped RW memory @ 0x7fb9e2517000
+[LOG][67059](map_rw_memory) Test passed
+[LOG][67059](munmap) Found mapguard cache entry for mapping 0x7fb9e2517000
+[LOG][67059](munmap) Unmapped guard pages 0x7fb9e2516000 and 0x7fb9e2515000
+[LOG][67059](munmap) Deleting cache entry for 0x7fb9e2517000
+[LOG][67059](unmap_memory) Successfully munmapped memory @ 0x7fb9e2517000
+[LOG][67059](mmap) Disallowing RWX memory allocation
+[LOG][67059](map_memory) Failed to map RWX memory
+[LOG][67059](map_rwx_memory) Test passed
+[LOG][67059](map_guard_pages) Successfully allocated bottom guard page: [(guard) 0x7fb9e2516000 | 0x7fb9e2517000]
+[LOG][67059](map_guard_pages) Failed to map top guard page @ 0x7fb9e2518000. Mapped @ 0x7fb9e2515000
+[LOG][67059](map_memory) Successfully mmapped RW memory @ 0x7fb9e2517000
+[LOG][67059](mprotect) Cannot allow mapping 0x7fb9e2517000 to be set PROT_EXEC
+[LOG][67059](map_rw_then_x_memory) Test passed
+[LOG][67059](munmap) Found mapguard cache entry for mapping 0x7fb9e2517000
+[LOG][67059](munmap) Unmapped guard pages 0x7fb9e2516000 and 0x7fb9e2515000
+[LOG][67059](munmap) Deleting cache entry for 0x7fb9e2517000
+[LOG][67059](unmap_memory) Successfully munmapped memory @ 0x7fb9e2517000
+[LOG][67059](map_guard_pages) Successfully allocated bottom guard page: [(guard) 0x7fb9e2516000 | 0x7fb9e2517000]
+[LOG][67059](map_guard_pages) Failed to map top guard page @ 0x7fb9e2518000. Mapped @ 0x7fb9e2515000
+[LOG][67059](map_memory) Successfully mmapped RW memory @ 0x7fb9e2517000
+[LOG][67059](map_guard_pages) Successfully allocated bottom guard page: [(guard) 0x7fb9e2512000 | 0x7fb9e2513000]
+[LOG][67059](map_guard_pages) Failed to map top guard page @ 0x7fb9e2515000. Mapped @ 0x7fb9e2515000
+[LOG][67059](remap_memory) Successfully remapped Remap memory 0x7fb9e2517000 @ 0x7fb9e2513000
+[LOG][67059](map_then_mremap) Test passed
+[LOG][67059](munmap) Found mapguard cache entry for mapping 0x7fb9e2513000
+[LOG][67059](munmap) Unmapped guard pages 0x7fb9e2512000 and 0x7fb9e2515000
+[LOG][67059](munmap) Deleting cache entry for 0x7fb9e2513000
+[LOG][67059](unmap_remapped_memory) Successfully munmapped remapped memory @ 0x7fb9e2513000
+[LOG][67059](mmap) Disallowing memory allocation at static address 0x7f3bffaaa000
+[LOG][67059](map_static_address) Test passed
+[LOG][67059](map_guard_pages) Successfully allocated bottom guard page: [(guard) 0x7fb9e2516000 | 0x7fb9e2517000]
+[LOG][67059](map_guard_pages) Failed to map top guard page @ 0x7fb9e2518000. Mapped @ 0x7fb9e2515000
+[LOG][67059](map_memory) Successfully mmapped Poison Bytes memory @ 0x7fb9e2517000
+[LOG][67059](check_poison_bytes) Test passed
+[LOG][67059](munmap) Found mapguard cache entry for mapping 0x7fb9e2517000
+[LOG][67059](munmap) Unmapped guard pages 0x7fb9e2516000 and 0x7fb9e2515000
+[LOG][67059](munmap) Deleting cache entry for 0x7fb9e2517000
+[LOG][67059](unmap_memory) Successfully munmapped memory @ 0x7fb9e2517000
+[LOG][67059](map_guard_pages) Successfully allocated bottom guard page: [(guard) 0x7fb9e2516000 | 0x7fb9e2517000]
+[LOG][67059](map_guard_pages) Failed to map top guard page @ 0x7fb9e2518000. Mapped @ 0x7fb9e2515000
+[LOG][67059](map_memory) Successfully mmapped R-X memory @ 0x7fb9e2517000
+[LOG][67059](mprotect) Cannot allow mapping 0x7fb9e2517000 to transition from PROT_EXEC to PROT_WRITE
+[LOG][67059](check_x_to_w) Test passed
+[LOG][67059](munmap) Found mapguard cache entry for mapping 0x7fb9e2517000
+[LOG][67059](munmap) Unmapped guard pages 0x7fb9e2516000 and 0x7fb9e2515000
+[LOG][67059](munmap) Deleting cache entry for 0x7fb9e2517000
+[LOG][67059](unmap_memory) Successfully munmapped memory @ 0x7fb9e2517000
 ```
 
 Or run your own program with the library:

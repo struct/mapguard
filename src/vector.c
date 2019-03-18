@@ -76,7 +76,7 @@ void *vector_for_each(vector_t *v, vector_for_each_callback_t *fe, void *data) {
         void *p = vector_get_at(v, sz);
 
         if(p == NULL) {
-            return NULL;
+            continue;
         }
 
         ret = (fe)(p, data);
