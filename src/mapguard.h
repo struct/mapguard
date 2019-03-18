@@ -20,16 +20,16 @@
 /* If you want to log security policy violations then
  * modifying this macro is the easiest way to do it */
 #if DEBUG
-	#define LOG_ERROR(msg, ...)	\
-		fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__); \
-		fflush(stderr);
+    #define LOG_ERROR(msg, ...) \
+        fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__); \
+        fflush(stderr);
 
-	#define LOG(msg, ...)	\
-		fprintf(stdout, "[LOG][%d](%s) " msg "\n", getpid(), __FUNCTION__, ##__VA_ARGS__); \
-		fflush(stdout);
+    #define LOG(msg, ...)   \
+        fprintf(stdout, "[LOG][%d](%s) " msg "\n", getpid(), __FUNCTION__, ##__VA_ARGS__); \
+        fflush(stdout);
 #else
-	#define LOG_ERROR(...)
-	#define LOG(...)
+    #define LOG_ERROR(...)
+    #define LOG(...)
 #endif
 
 /* Environment variable configurations */
@@ -51,41 +51,41 @@
 /* Enable the mapping cache, required for guard page allocation */
 #define MG_USE_MAPPING_CACHE "MG_USE_MAPPING_CACHE"
 
-#define ENV_TO_INT(env, config)	\
-		if(env_to_int(env)) {	\
-			config = 1;			\
-		}
+#define ENV_TO_INT(env, config) \
+        if(env_to_int(env)) {   \
+            config = 1;         \
+        }
 
-#define MAYBE_PANIC 								\
-		if(g_mapguard_policy.panic_on_violation) {	\
-			abort();								\
-		}
+#define MAYBE_PANIC                                 \
+        if(g_mapguard_policy.panic_on_violation) {  \
+            abort();                                \
+        }
 
 #define ROUND_UP_PAGE(N) ((((N) + (g_page_size) - 1) / (g_page_size)) * (g_page_size))
 
 #define MG_POISON_BYTE 0xde
 
 typedef struct {
-	int disallow_rwx;
-	int disallow_x_transition;
-	int disallow_transition_from_x;
-	int disallow_static_address;
-	int enable_guard_pages;
-	int panic_on_violation;
-	int poison_on_allocation;
-	int use_mapping_cache;
+    int disallow_rwx;
+    int disallow_x_transition;
+    int disallow_transition_from_x;
+    int disallow_static_address;
+    int enable_guard_pages;
+    int panic_on_violation;
+    int poison_on_allocation;
+    int use_mapping_cache;
 } mapguard_policy_t;
 
 mapguard_policy_t g_mapguard_policy;
 
 typedef struct {
-	void *start;
-	void *guard_bottom;
-	void *guard_top;
-	size_t size;
-	int prot;
-	int has_guard;
-	int cache_index;
+    void *start;
+    void *guard_bottom;
+    void *guard_top;
+    size_t size;
+    int prot;
+    int has_guard;
+    int cache_index;
 } mapguard_cache_entry_t;
 
 vector_t g_map_cache_vector;
