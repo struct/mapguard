@@ -15,7 +15,7 @@ MG_USE_MAPPING_CACHE - Enable the mapping cache, required for guard page allocat
 
 This library requires hooking `mmap`, `munmap`, `mprotect`, and `mremap`. There are still corner cases that need support. This library introduces some performance overhead, especially if guard pages are enabled. Map Guard has only been tested on 64 bit Linux but should work on 32 bit programs and Mac OS with minor modifications. 
 
-## How
+## Testing
 
 You can test Map Guard by running `./run_tests.sh`:
 
