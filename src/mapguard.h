@@ -83,7 +83,8 @@ typedef struct {
     void *guard_bottom;
     void *guard_top;
     size_t size;
-    int prot;
+    int immutable_prot;
+    int current_prot;
     int has_guard;
     int cache_index;
 } mapguard_cache_entry_t;

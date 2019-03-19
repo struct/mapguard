@@ -134,7 +134,8 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
         mce = new_mapguard_cache_entry();
         mce->start = map_ptr;
         mce->size = length;
-        mce->prot = prot;
+        mce->immutable_prot |= prot;
+        mce->current_prot = prot;
         mce->cache_index = vector_push(&g_map_cache_vector, mce);
     }
 
@@ -184,19 +185,26 @@ int munmap(void *addr, size_t length) {
 int mprotect(void *addr, size_t len, int prot) {
     mapguard_cache_entry_t *mce = NULL;
 
+    /* Disallow RWX mappings */
+    if(g_mapguard_policy.disallow_rwx && (prot & PROT_WRITE) && (prot & PROT_EXEC)) {
+        LOG("Disallowing RWX memory allocation");
+        MAYBE_PANIC
+        return ERROR;
+    }
+
     /* Disallow transition to/from X (requires the mapping cache) */
     if(g_mapguard_policy.use_mapping_cache) {
         mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
 
         if(mce != NULL) {
-            if(g_mapguard_policy.disallow_x_transition && (prot & PROT_EXEC) && (mce->prot & PROT_WRITE)) {
+            if(g_mapguard_policy.disallow_x_transition && (prot & PROT_EXEC) && (mce->immutable_prot & PROT_WRITE)) {
                 LOG("Cannot allow mapping %p to be set PROT_EXEC", addr);
                 MAYBE_PANIC
                 errno = EINVAL;
                 return ERROR;
             }
 
-            if(g_mapguard_policy.disallow_transition_from_x && (prot & PROT_WRITE) && (mce->prot & PROT_EXEC)) {
+            if(g_mapguard_policy.disallow_transition_from_x && (prot & PROT_WRITE) && (mce->immutable_prot & PROT_EXEC)) {
                 LOG("Cannot allow mapping %p to transition from PROT_EXEC to PROT_WRITE", addr);
                 MAYBE_PANIC
                 errno = EINVAL;
@@ -215,7 +223,8 @@ int mprotect(void *addr, size_t len, int prot) {
         }
 
         /* Update the saved page permissions, even if the size doesn't match */
-        mce->prot = prot;
+        mce->immutable_prot |= prot;
+        mce->current_prot = prot;
     }
 
     return ret;
