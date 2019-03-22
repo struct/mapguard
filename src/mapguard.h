@@ -87,6 +87,11 @@ typedef struct {
     int current_prot;
     int has_guard;
     int cache_index;
+#ifdef MPK_SUPPORT
+    int xom_enabled;
+    int pkey;
+    int pkey_access_rights;
+#endif
 } mapguard_cache_entry_t;
 
 vector_t g_map_cache_vector;
@@ -97,6 +102,9 @@ mapguard_cache_entry_t *new_mapguard_cache_entry();
 void *is_mapguard_entry_cached(void *p, void *data);
 void vector_pointer_free(void *p);
 int32_t env_to_int(char *string);
+
+void *memcpy_xom(size_t allocation_size, void *src, size_t src_size);
+int munmap_xom(void *addr, size_t length);
 
 /* Hooked libc functions */
 void*(*g_real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);

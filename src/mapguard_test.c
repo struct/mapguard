@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
+#include "mapguard.h"
+
 #define OK 0
 #define ERROR -1
 #define MG_POISON_BYTE 0xde
@@ -29,6 +31,9 @@
 #endif
 
 #define ALLOC_SIZE 4096
+
+void *mmap_xom(size_t allocation_size, void *src, size_t src_size);
+int munmap_xom(void *addr, size_t length);
 
 void *map_memory(char *desc, int prot) {
     uint8_t *ptr = mmap(0, ALLOC_SIZE, prot, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
@@ -192,6 +197,21 @@ void check_poison_bytes() {
     unmap_memory(ptr);
 }
 
+void check_mpk_xom() {
+    char *x86_nops_cc = "\x90\x90\x90\x90\xcc";
+    void *ptr = memcpy_xom(4096, x86_nops_cc, strlen(x86_nops_cc));
+
+    void*(*code_pointer)();
+    code_pointer = (void *) ptr;
+    /* Should execute the code at the XOM mapping
+     * but will eventually crash */
+    (code_pointer)();
+
+    /* Should result in SEGV_PKUERR */
+    int8_t *v = &ptr[2];
+    LOG("XOM Read Value = %x", *t);
+}
+
 int main(int argc, char *argv[]) {
     map_rw_memory();
     map_rwx_memory();
@@ -200,5 +220,8 @@ int main(int argc, char *argv[]) {
     map_static_address();
     check_poison_bytes();
     check_x_to_w();
+
+    /* Temporarily disabled while I work on MPK support
+    check_mpk_xom(); */
     return OK;
 }

@@ -187,7 +187,7 @@ int mprotect(void *addr, size_t len, int prot) {
 
     /* Disallow RWX mappings */
     if(g_mapguard_policy.disallow_rwx && (prot & PROT_WRITE) && (prot & PROT_EXEC)) {
-        LOG("Disallowing RWX memory allocation");
+        LOG("Disallowing RWX mprotect");
         MAYBE_PANIC
         return ERROR;
     }
@@ -196,9 +196,9 @@ int mprotect(void *addr, size_t len, int prot) {
     if(g_mapguard_policy.use_mapping_cache) {
         mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
 
-        if(mce != NULL) {
+        if(mce != NULL && mce->xom_enabled == 0) {
             if(g_mapguard_policy.disallow_x_transition && (prot & PROT_EXEC) && (mce->immutable_prot & PROT_WRITE)) {
-                LOG("Cannot allow mapping %p to be set PROT_EXEC", addr);
+                LOG("Cannot allow mapping %p to be set PROT_EXEC, it was previously PROT_WRITE", addr);
                 MAYBE_PANIC
                 errno = EINVAL;
                 return ERROR;
@@ -251,3 +251,87 @@ void* mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
 
     return map_ptr;
 }
+
+#ifdef MPK_SUPPORT
+
+/* Memory Protection Keys is a feature on newer Intel x64 Skylake processors
+ * that allows a program set permission bits on a per-page mapping. The advantage
+ * of MPK over mprotect() is that its a lot faster. This feature of MapGuard
+ * has only been tested on AWS EC2 C5 instances and it may not even work there.
+ *
+ * To know if your kernel supports MPK try the following:
+ * cat /proc/cpuinfo | grep -E 'pku|ospke'
+ */
+
+/* memcpy_xom - Allocates writeable memory, copies src_size bytes from src
+ * into those pages, and then marks the allocation execute only. Upon
+ * failure it returns MAP_FAILED. Upon success it returns a pointer to the
+ * Execute Only memory region */
+void *memcpy_xom(size_t allocation_size, void *src, size_t src_size) {
+
+    if(g_mapguard_policy.use_mapping_cache == 0) {
+        LOG("Cannot allocate XOM memory without MG_USE_MAPPING_CACHE enabled");
+        return MAP_FAILED;
+    }
+
+    if(src == NULL || src_size == 0) {
+        LOG("XOM allocation failed, src is %p and src_size = %ld", src, src_size);
+        return MAP_FAILED;
+    }
+
+    if(src_size > allocation_size) {
+        LOG("XOM allocation failed, src size larger than allocation size")
+        return MAP_FAILED;
+    }
+
+    void *map_ptr = g_real_mmap(0x0, allocation_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+
+    if(map_ptr == MAP_FAILED) {
+        LOG("XOM mmap failed");
+        return MAP_FAILED;
+    }
+
+    memcpy(map_ptr, src, src_size);
+
+    mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) malloc(sizeof(mapguard_cache_entry_t));
+    memset(mce, 0x0, sizeof(mapguard_cache_entry_t));
+
+    mce->start = map_ptr;
+    mce->size = allocation_size;
+    mce->immutable_prot = PROT_EXEC;
+    mce->current_prot = PROT_EXEC;
+    mce->xom_enabled = 1;
+    /* We use -1 here as a stand in for the kernels execute_only_pkey */
+    mce->pkey = -1;
+    mce->pkey_access_rights = PKEY_DISABLE_ACCESS;
+
+    int32_t ret = g_real_mprotect(map_ptr, allocation_size, PROT_EXEC);
+
+    if(ret != 0) {
+        LOG("XOM mprotect failed, unmapping memory");
+        g_real_munmap(map_ptr, allocation_size);
+        free(mce);
+        return MAP_FAILED;
+    }
+
+    mce->cache_index = vector_push(&g_map_cache_vector, mce);
+
+    return map_ptr;
+}
+
+int munmap_xom(void *addr, size_t length) {
+    mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
+
+    if(mce != NULL) {
+        LOG("Found mapguard cache entry for mapping %p", mce->start);
+        pkey_free(mce->pkey);
+        vector_delete_at(&g_map_cache_vector, mce->cache_index);
+        free(mce);
+    } else {
+        return ERROR;
+    }
+
+    return OK;
+}
+
+#endif
