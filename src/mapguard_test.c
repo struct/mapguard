@@ -197,6 +197,48 @@ void check_poison_bytes() {
     unmap_memory(ptr);
 }
 
+void check_map_partial_unmap_bottom() {
+    uint8_t *ptr = mmap(0, 8192, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+
+    if(ptr != MAP_FAILED) {
+        LOG("Successfully mmapped memory @ %p", ptr);
+    } else {
+        LOG("Failed to map memory");
+    }
+
+    int ret = munmap(ptr, 4096);
+
+    if(ret != 0) {
+        LOG("Failed to unmap partial page mapping");
+        abort();
+    } else {
+        LOG("Successfully unmapped partial bottom page mapping");
+    }
+
+    munmap(ptr+4096, 4096);
+}
+
+void check_map_partial_unmap_top() {
+    uint8_t *ptr = mmap(0, 8192, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+
+    if(ptr != MAP_FAILED) {
+        LOG("Successfully mmapped memory @ %p", ptr);
+    } else {
+        LOG("Failed to map memory");
+    }
+
+    int ret = munmap(ptr+4096, 4096);
+
+    if(ret != 0) {
+        LOG("Failed to unmap partial page mapping");
+        abort();
+    } else {
+        LOG("Successfully unmapped partial top page mapping");
+    }
+
+    munmap(ptr, 4096);
+}
+
 void check_mpk_xom() {
     char *x86_nops_cc = "\x90\x90\x90\x90\xcc";
     void *ptr = memcpy_xom(4096, x86_nops_cc, strlen(x86_nops_cc));
@@ -209,7 +251,7 @@ void check_mpk_xom() {
 
     /* Should result in SEGV_PKUERR */
     int8_t *v = &ptr[2];
-    LOG("XOM Read Value = %x", *t);
+    LOG("XOM Read Value = %x", *v);
 }
 
 int main(int argc, char *argv[]) {
@@ -220,6 +262,8 @@ int main(int argc, char *argv[]) {
     map_static_address();
     check_poison_bytes();
     check_x_to_w();
+    check_map_partial_unmap_bottom();
+    check_map_partial_unmap_top();
 
     /* Temporarily disabled while I work on MPK support
     check_mpk_xom(); */

@@ -85,7 +85,6 @@ typedef struct {
     size_t size;
     int immutable_prot;
     int current_prot;
-    int has_guard;
     int cache_index;
 #ifdef MPK_SUPPORT
     int xom_enabled;

@@ -61,7 +61,13 @@ void *get_base_page(void *addr) {
 /* Checks if we have a cache entry for this mapping */
 void *is_mapguard_entry_cached(void *p, void *data) {
     mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) p;
+
     if(mce->start == data) {
+        return mce;
+    }
+
+    /* This address is within the range of a cached mapping */
+    if(data > mce->start && mce->start+mce->size > data) {
         return mce;
     }
 
@@ -72,9 +78,27 @@ void *map_guard_page(void *addr) {
     return g_real_mmap(get_base_page(addr), g_page_size, PROT_READ, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
 }
 
-void map_guard_pages(mapguard_cache_entry_t *mce) {
-    if(mce->start == 0 && mce->size != 0) {
-        mce->has_guard = 0;
+void unmap_top_guard_page(mapguard_cache_entry_t *mce) {
+    if(mce->guard_top) {
+        g_real_munmap(mce->guard_top, g_page_size);
+        LOG("Unmapped top guard page %p", mce->guard_top);
+    }
+}
+
+void unmap_bottom_guard_page(mapguard_cache_entry_t *mce) {
+    if(mce->guard_bottom) {
+        g_real_munmap(mce->guard_bottom, g_page_size);
+        LOG("Unmapped bottom guard page %p", mce->guard_bottom);
+    }
+}
+
+void unmap_guard_pages(mapguard_cache_entry_t *mce) {
+    unmap_bottom_guard_page(mce);
+    unmap_top_guard_page(mce);
+}
+
+void map_bottom_guard_page(mapguard_cache_entry_t *mce) {
+    if(mce == NULL) {
         return;
     }
 
@@ -87,6 +111,12 @@ void map_guard_pages(mapguard_cache_entry_t *mce) {
         LOG("Failed to map bottom guard page @ %p. Mapped @ %p", get_base_page(mce->start), mce->guard_bottom);
     }
 #endif
+}
+
+void map_top_guard_page(mapguard_cache_entry_t *mce) {
+    if(mce == NULL) {
+        return;
+    }
 
     mce->guard_top = map_guard_page((void *) ROUND_UP_PAGE((uint64_t)(mce->start+mce->size)));
 
@@ -97,8 +127,15 @@ void map_guard_pages(mapguard_cache_entry_t *mce) {
         LOG("Failed to map top guard page @ %p. Mapped @ %p", (void *) ROUND_UP_PAGE((uint64_t)(mce->start+mce->size)), mce->guard_top);
     }
 #endif
+}
 
-    mce->has_guard = 1;
+void map_guard_pages(mapguard_cache_entry_t *mce) {
+    if(mce->start == 0 && mce->size != 0) {
+        return;
+    }
+
+    map_bottom_guard_page(mce);
+    map_top_guard_page(mce);
 }
 
 /* Hook mmap in libc */
@@ -126,6 +163,10 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
     }
 
     void *map_ptr = g_real_mmap(addr, length, prot, flags, fd, offset);
+
+    if(map_ptr == MAP_FAILED) {
+        return map_ptr;
+    }
 
     mapguard_cache_entry_t *mce = NULL;
 
@@ -158,27 +199,58 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 
 /* Hook munmap in libc */
 int munmap(void *addr, size_t length) {
+    mapguard_cache_entry_t *mce = NULL;
+    int32_t ret = 0;
+
     /* Remove tracked pages from the cache */
     if(g_mapguard_policy.use_mapping_cache) {
-        mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
+        mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
 
         if(mce) {
             LOG("Found mapguard cache entry for mapping %p", mce->start);
 
-            /* If these fail we just leak pages */
-            if(mce->has_guard) {
-                g_real_munmap(mce->guard_bottom, g_page_size);
-                g_real_munmap(mce->guard_top, g_page_size);
-                LOG("Unmapped guard pages %p and %p", mce->guard_bottom, mce->guard_top);
-                LOG("Deleting cache entry for %p", mce->start);
-            }
+            /* Handle a partial unmapping */
+            if(mce->start != addr || mce->size != length) {
+                /* Update the size we are tracking */
+                mce->size -= length;
 
-            vector_delete_at(&g_map_cache_vector, mce->cache_index);
-            free(mce);
+                /* Handle the case of unmapping the last N pages */
+                if(addr > mce->start && length < mce->size) {
+                    unmap_top_guard_page(mce);
+                    ret = g_real_munmap(addr, length);
+
+                    /* If the unmapping succeeded remap the top guard page */
+                    if(ret == 0) {
+                        map_top_guard_page(mce);
+                    }
+
+                    return ret;
+                }
+
+                /* Handle the case of unmapping the first N pages */
+                if(mce->start == addr) {
+                    unmap_bottom_guard_page(mce);
+                    mce->start += length;
+                    ret = g_real_munmap(addr, length);
+
+                    /* If the unmapping succeeded remap the bottom guard page */
+                    if(ret == 0) {
+                        map_bottom_guard_page(mce);
+                    }
+
+                    return ret;
+                }
+            } else {
+                unmap_guard_pages(mce);
+                LOG("Deleting cache entry for %p", mce->start);
+                vector_delete_at(&g_map_cache_vector, mce->cache_index);
+                free(mce);
+                mce = NULL;
+            }
         }
     }
 
-    return g_real_munmap(addr, length);
+    return g_real_munmap(addr, length);;
 }
 
 /* Hook mprotect in libc */
@@ -240,7 +312,7 @@ void* mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
         /* We are remapping a previously tracked allocation. This
          * means we may have to reallocate guard pages and update
          * the status of our cache */
-        if(mce && mce->has_guard && map_ptr != MAP_FAILED) {
+        if(mce && (mce->guard_bottom || mce->guard_top) && map_ptr != MAP_FAILED) {
             g_real_munmap(mce->guard_bottom, g_page_size);
             g_real_munmap(mce->guard_top, g_page_size);
             mce->start = map_ptr;
