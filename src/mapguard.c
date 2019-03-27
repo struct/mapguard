@@ -7,7 +7,7 @@ __attribute__((constructor)) void mapguard_ctor() {
     /* Enable configuration of mapguard via environment
      * variables during DSO load time only */
     ENV_TO_INT(MG_DISALLOW_RWX, g_mapguard_policy.disallow_rwx);
-    ENV_TO_INT(MG_DISALLOW_X_TRANSITION, g_mapguard_policy.disallow_x_transition);
+    ENV_TO_INT(MG_DISALLOW_TRANSITION_TO_X, g_mapguard_policy.disallow_transition_to_x);
     ENV_TO_INT(MG_DISALLOW_TRANSITION_FROM_X, g_mapguard_policy.disallow_transition_from_x);
     ENV_TO_INT(MG_DISALLOW_STATIC_ADDRESS, g_mapguard_policy.disallow_static_address);
     ENV_TO_INT(MG_ENABLE_GUARD_PAGES, g_mapguard_policy.enable_guard_pages);
@@ -75,7 +75,7 @@ void *is_mapguard_entry_cached(void *p, void *data) {
 }
 
 void *map_guard_page(void *addr) {
-    return g_real_mmap(get_base_page(addr), g_page_size, PROT_READ, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+    return g_real_mmap(get_base_page(addr), g_page_size, PROT_NONE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
 }
 
 void unmap_top_guard_page(mapguard_cache_entry_t *mce) {
@@ -269,7 +269,7 @@ int mprotect(void *addr, size_t len, int prot) {
         mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
 
         if(mce != NULL && mce->xom_enabled == 0) {
-            if(g_mapguard_policy.disallow_x_transition && (prot & PROT_EXEC) && (mce->immutable_prot & PROT_WRITE)) {
+            if(g_mapguard_policy.disallow_transition_to_x && (prot & PROT_EXEC) && (mce->immutable_prot & PROT_WRITE)) {
                 LOG("Cannot allow mapping %p to be set PROT_EXEC, it was previously PROT_WRITE", addr);
                 MAYBE_PANIC
                 errno = EINVAL;
