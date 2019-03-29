@@ -78,6 +78,7 @@ typedef struct {
 
 mapguard_policy_t g_mapguard_policy;
 
+/* TODO - This structure is not thread safe */
 typedef struct {
     void *start;
     void *guard_bottom;
@@ -95,6 +96,11 @@ typedef struct {
 
 vector_t g_map_cache_vector;
 
+/* Thread specific variable for tracking how many
+ * pkeys are currently in use per thread. This is
+ * currently unused */
+__thread uint8_t pkeys_used;
+
 size_t g_page_size;
 
 mapguard_cache_entry_t *new_mapguard_cache_entry();
@@ -102,11 +108,19 @@ void *is_mapguard_entry_cached(void *p, void *data);
 void vector_pointer_free(void *p);
 int32_t env_to_int(char *string);
 
+#ifdef MPK_SUPPORT
 void *memcpy_xom(size_t allocation_size, void *src, size_t src_size);
 int munmap_xom(void *addr, size_t length);
+int32_t protect_mapping(void *addr);
+int32_t unprotect_mapping(void *addr, int new_prot);
+int(*g_real_pkey_mprotect)(void *addr, size_t len, int prot, int pkey);
+int(*g_real_pkey_alloc)(unsigned int flags, unsigned int access_rights);
+int(*g_real_pkey_free)(int pkey);
+#endif
 
 /* Hooked libc functions */
 void*(*g_real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 int(*g_real_munmap)(void *addr, size_t length);
 int(*g_real_mprotect)(void *addr, size_t len, int prot);
 void*(*g_real_mremap)(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...);
+

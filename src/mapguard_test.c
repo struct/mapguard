@@ -30,10 +30,7 @@
     #define LOG(...)
 #endif
 
-#define ALLOC_SIZE 4096
-
-void *mmap_xom(size_t allocation_size, void *src, size_t src_size);
-int munmap_xom(void *addr, size_t length);
+#define ALLOC_SIZE 4096 * 8
 
 void *map_memory(char *desc, int prot) {
     uint8_t *ptr = mmap(0, ALLOC_SIZE, prot, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
@@ -239,6 +236,7 @@ void check_map_partial_unmap_top() {
     munmap(ptr, 4096);
 }
 
+#ifdef MPK_SUPPORT
 void check_mpk_xom() {
     char *x86_nops_cc = "\x90\x90\x90\x90\xcc";
     void *ptr = memcpy_xom(4096, x86_nops_cc, strlen(x86_nops_cc));
@@ -251,8 +249,32 @@ void check_mpk_xom() {
 
     /* Should result in SEGV_PKUERR */
     int8_t *v = &ptr[2];
-    LOG("XOM Read Value = %x", *v);
+    LOG("XOM Read Value = %02x", *v);
 }
+
+void check_protect_mapping() {
+    void *ptr = map_memory("RW", PROT_READ|PROT_WRITE);
+    int32_t ret = protect_mapping(ptr);
+
+    if(ret != 0) {
+        LOG("Failed to protect memory mapping @ %p", ptr);
+        abort();
+    } else {
+        LOG("Successfully protected memory @ %p", ptr);
+    }
+
+    ret = unprotect_mapping(ptr, PROT_READ|PROT_WRITE);
+
+    if(ret != 0) {
+        LOG("Failed to unprotect memory mapping @ %p", ptr);
+        abort();
+    } else {
+        LOG("Successfully unprotected memory @ %p", ptr);
+    }
+
+    unmap_memory(ptr);
+}
+#endif
 
 int main(int argc, char *argv[]) {
     map_rw_memory();
@@ -267,5 +289,10 @@ int main(int argc, char *argv[]) {
 
     /* Temporarily disabled while I work on MPK support
     check_mpk_xom(); */
+
+#ifdef MPK_SUPPORT
+    check_protect_mapping();
+#endif
+
     return OK;
 }
