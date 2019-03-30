@@ -286,13 +286,15 @@ int main(int argc, char *argv[]) {
     check_x_to_w();
     check_map_partial_unmap_bottom();
     check_map_partial_unmap_top();
-
     /* Temporarily disabled while I work on MPK support
     check_mpk_xom(); */
 
 #ifdef MPK_SUPPORT
     check_protect_mapping();
 #endif
+
+    protect_code();
+    unprotect_code();
 
     return OK;
 }

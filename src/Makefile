@@ -2,7 +2,7 @@
 
 CC = clang
 CFLAGS = -Wall -DMPK_SUPPORT=1
-EXE_CFLAGS = -fPIE -fPIC
+EXE_CFLAGS = -fPIE -pie
 DEBUG_FLAGS = -DDEBUG -ggdb
 LIBRARY = -fPIC -shared -ldl
 ASAN = -fsanitize=address

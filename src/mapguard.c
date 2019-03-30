@@ -538,4 +538,34 @@ int32_t unprotect_mapping(void *addr, int new_prot) {
     return OK;
 }
 
+static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t size, void *data) {
+    const char *lib_name = "unknown_object";
+
+    if(strlen(info->dlpi_name) != 0) {
+        lib_name = info->dlpi_name;
+    }
+
+    void *load_address = (void *) info->dlpi_addr;
+    int32_t ret = OK;
+
+    /* The main executable may appear to be loaded at 0. We
+     * need to fix that up by iterating for the right PT_LOAD
+     * segment and adding the virtual address */
+    for(uint32_t i = 0; i < info->dlpi_phnum; i++) {
+        if(info->dlpi_phdr[i].p_type == PT_LOAD && (info->dlpi_phdr[i].p_flags & PF_X)) {
+            ret |= g_real_mprotect(load_address, info->dlpi_phdr[i].p_memsz, (int32_t) data);
+        }
+    }
+
+    return ret;
+}
+
+int32_t protect_code() {
+    return dl_iterate_phdr(map_guard_protect_code_callback, (void *) PROT_EXEC);
+}
+
+int32_t unprotect_code() {
+    return dl_iterate_phdr(map_guard_protect_code_callback, (void *)(PROT_READ|PROT_EXEC));
+}
+
 #endif
