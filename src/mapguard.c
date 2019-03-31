@@ -247,6 +247,11 @@ int munmap(void *addr, size_t length) {
                     return ret;
                 }
             } else {
+#ifdef MPK_SUPPORT
+                if(mce->pkey) {
+                    g_real_pkey_free(mce->pkey);
+                }
+#endif
                 unmap_guard_pages(mce);
                 LOG("Deleting cache entry for %p", mce->start);
                 vector_delete_at(&g_map_cache_vector, mce->cache_index);
@@ -533,6 +538,7 @@ int32_t unprotect_mapping(void *addr, int new_prot) {
         mce->current_prot = new_prot;
         mce->pkey_access_rights = 0;
         g_real_pkey_free(mce->pkey);
+        mce->pkey = 0;
     }
 
     return OK;
@@ -557,10 +563,17 @@ static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t
     return ret;
 }
 
+/* Uses the dynamic linker dl_iterate_phdr API to locate all
+ * currently mapped PT_LOAD segments with PF_X flags and then
+ * uses mprotect to mark them execute only */
 int32_t protect_code() {
     return dl_iterate_phdr(map_guard_protect_code_callback, (void *)PROT_EXEC);
 }
 
+/* Locate all currently mapped PT_LOAD segments with PF_X flags
+ * and mark them PROT_READ|PROT_EXEC. Its possible this will find
+ * segments of code that were not found when you called protect_code
+ * but that should be harmless */
 int32_t unprotect_code() {
     return dl_iterate_phdr(map_guard_protect_code_callback, (void *)(PROT_READ|PROT_EXEC));
 }
