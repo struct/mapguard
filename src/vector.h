@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-#define VECTOR_MIN_SIZE 256
+#define VECTOR_MIN_SIZE 512
 
 typedef struct {
 	/* This vector only holds pointers */

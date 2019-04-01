@@ -24,11 +24,13 @@ library_debug: clean
 test: clean library
 	mkdir -p ../build/
 	$(CC) $(CFLAGS) $(EXE_CFLAGS) mapguard_test.c vector.c -o ../build/mapguard_test -L../build/ -lmapguard
+	$(CC) $(CFLAGS) $(EXE_CFLAGS) mapguard_thread_test.c vector.c -o ../build/mapguard_thread_test -L../build/ -lmapguard -lpthread
 
 ## Build a debug version of the unit test
 debug_test: clean library_debug
 	mkdir -p ../build/
 	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) mapguard_test.c vector.c -o ../build/mapguard_test -L../build/ -lmapguard
+	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) mapguard_thread_test.c vector.c -o ../build/mapguard_thread_test -L../build/ -lmapguard -lpthread
 
 ## Build the vector tests
 vector_test:

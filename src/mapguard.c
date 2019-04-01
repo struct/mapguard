@@ -87,6 +87,7 @@ void *map_guard_page(void *addr) {
 void unmap_top_guard_page(mapguard_cache_entry_t *mce) {
     if(mce->guard_top) {
         g_real_munmap(mce->guard_top, g_page_size);
+        mce->guard_top = 0;
         LOG("Unmapped top guard page %p", mce->guard_top);
     }
 }
@@ -94,6 +95,7 @@ void unmap_top_guard_page(mapguard_cache_entry_t *mce) {
 void unmap_bottom_guard_page(mapguard_cache_entry_t *mce) {
     if(mce->guard_bottom) {
         g_real_munmap(mce->guard_bottom, g_page_size);
+        mce->guard_bottom = 0;
         LOG("Unmapped bottom guard page %p", mce->guard_bottom);
     }
 }
@@ -104,7 +106,7 @@ void unmap_guard_pages(mapguard_cache_entry_t *mce) {
 }
 
 void map_bottom_guard_page(mapguard_cache_entry_t *mce) {
-    if(mce == NULL) {
+    if(mce == NULL || mce->guard_bottom != 0) {
         return;
     }
 
@@ -120,7 +122,7 @@ void map_bottom_guard_page(mapguard_cache_entry_t *mce) {
 }
 
 void map_top_guard_page(mapguard_cache_entry_t *mce) {
-    if(mce == NULL) {
+    if(mce == NULL || mce->guard_top != 0) {
         return;
     }
 
@@ -140,8 +142,13 @@ void map_guard_pages(mapguard_cache_entry_t *mce) {
         return;
     }
 
-    map_bottom_guard_page(mce);
-    map_top_guard_page(mce);
+    if(mce->guard_bottom == 0) {
+        map_bottom_guard_page(mce);
+    }
+
+    if(mce->guard_top == 0) {
+        map_top_guard_page(mce);
+    }
 }
 
 /* Hook mmap in libc */
@@ -247,6 +254,12 @@ int munmap(void *addr, size_t length) {
                     return ret;
                 }
             } else {
+                ret = g_real_munmap(addr, length);
+
+                /* Continue tracking a failed unmapping */
+                if(ret != 0) {
+                    return ret;
+                }
 #ifdef MPK_SUPPORT
                 if(mce->pkey) {
                     g_real_pkey_free(mce->pkey);
@@ -261,7 +274,9 @@ int munmap(void *addr, size_t length) {
         }
     }
 
-    return g_real_munmap(addr, length);;
+    /* We aren't using the cache or we aren't
+     * tracking this page allocation */
+    return g_real_munmap(addr, length);
 }
 
 /* Hook mprotect in libc */
@@ -344,8 +359,18 @@ void* mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
          * means we may have to reallocate guard pages and update
          * the status of our cache */
         if(mce && (mce->guard_bottom || mce->guard_top) && map_ptr != MAP_FAILED) {
-            g_real_munmap(mce->guard_bottom, g_page_size);
-            g_real_munmap(mce->guard_top, g_page_size);
+            /* mremap may just allocate new pages above the
+             * existing allocation to resize it. If it does
+             * then theres no need to unmap/remap the bottom
+             * guard page. If guard pages are configured then
+             * its probably not possible for mremap to grow
+             * the allocation in place anyway but this is a
+             * cheap check regardless */
+            if(mce->start != map_ptr) {
+                unmap_bottom_guard_page(mce);
+            }
+
+            unmap_top_guard_page(mce);
             mce->start = map_ptr;
             mce->size = __new_len;
             map_guard_pages(mce);

@@ -12,24 +12,7 @@
 
 #include "mapguard.h"
 
-#define OK 0
-#define ERROR -1
-#define MG_POISON_BYTE 0xde
 #define STATIC_ADDRESS 0x7f3bffaaa000
-
-#if DEBUG
-    #define LOG_ERROR(msg, ...) \
-        fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__); \
-        fflush(stderr);
-
-    #define LOG(msg, ...)   \
-        fprintf(stdout, "[LOG][%d](%s) " msg "\n", getpid(), __FUNCTION__, ##__VA_ARGS__); \
-        fflush(stdout);
-#else
-    #define LOG_ERROR(...)
-    #define LOG(...)
-#endif
-
 #define ALLOC_SIZE 4096 * 8
 
 void *map_memory(char *desc, int prot) {
@@ -209,7 +192,7 @@ void check_map_partial_unmap_bottom() {
         LOG("Failed to unmap partial page mapping");
         abort();
     } else {
-        LOG("Successfully unmapped partial bottom page mapping");
+        LOG("Test passed");
     }
 
     munmap(ptr+4096, 4096);
@@ -230,7 +213,7 @@ void check_map_partial_unmap_top() {
         LOG("Failed to unmap partial page mapping");
         abort();
     } else {
-        LOG("Successfully unmapped partial top page mapping");
+        LOG("Test passed");
     }
 
     munmap(ptr, 4096);
@@ -250,6 +233,7 @@ void check_mpk_xom() {
     /* Should result in SEGV_PKUERR */
     int8_t *v = &ptr[2];
     LOG("XOM Read Value = %02x", *v);
+    LOG("Test passed");
 }
 
 void check_protect_mapping() {
@@ -272,6 +256,7 @@ void check_protect_mapping() {
         LOG("Successfully unprotected memory @ %p", ptr);
     }
 
+    LOG("Test passed");
     unmap_memory(ptr);
 }
 #endif
