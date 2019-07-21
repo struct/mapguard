@@ -117,6 +117,8 @@ void *memcpy_xom(size_t allocation_size, void *src, size_t src_size);
 int munmap_xom(void *addr, size_t length);
 int32_t protect_mapping(void *addr);
 int32_t unprotect_mapping(void *addr, int new_prot);
+int32_t protect_segments();
+int32_t unprotect_segments();
 int32_t protect_code();
 int32_t unprotect_code();
 int(*g_real_pkey_mprotect)(void *addr, size_t len, int prot, int pkey);

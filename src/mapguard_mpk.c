@@ -253,6 +253,31 @@ int32_t unprotect_mapping(void *addr, int new_prot) {
     return OK;
 }
 
+/* Map Guard library implementation */
+static int32_t map_guard_protect_segments_callback(struct dl_phdr_info *info, size_t size, void *data) {
+    const char *object_name = "unknown_object";
+
+    if(strlen(info->dlpi_name) != 0) {
+        object_name = info->dlpi_name;
+    }
+
+    if(strlen(object_name) >= strlen("linux-vdso") && strncmp(object_name, "linux-vdso", 10) == 0) {
+        LOG("Skipping VDSO (%s)", object_name);
+        return 0;
+    }
+
+    void *load_address = (void *) info->dlpi_addr;
+    int32_t ret = OK;
+
+    for(uint32_t i = 0; i < info->dlpi_phnum; i++) {
+        if(info->dlpi_phdr[i].p_type == PT_LOAD && (info->dlpi_phdr[i].p_flags & PF_X)) {
+            ret |= g_real_mprotect(load_address, info->dlpi_phdr[i].p_memsz, (int32_t) data);
+        }
+    }
+
+    return ret;
+}
+
 static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t size, void *data) {
     const char *object_name = "unknown_object";
 
@@ -396,18 +421,27 @@ static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t
 }
 
 /* Uses the dynamic linker dl_iterate_phdr API to locate all
- * currently mapped PT_LOAD segments with PF_X flags and then
- * uses mprotect to mark them execute only */
+ * currently mapped DSO's, parses their program headers to find
+ * as much of the .text section as possible and marks it PROT_EXEC */
 int32_t protect_code() {
     return dl_iterate_phdr(map_guard_protect_code_callback, (void *) PROT_EXEC);
 }
 
-/* Locate all currently mapped PT_LOAD segments with PF_X flags
- * and mark them PROT_READ|PROT_EXEC. Its possible this will find
- * segments of code that were not found when you called protect_code
- * but that should be harmless */
+/* Undoes the execute only protections put in place by protect_code() */
 int32_t unprotect_code() {
     return dl_iterate_phdr(map_guard_protect_code_callback, (void *) (PROT_READ|PROT_EXEC));
+}
+
+/* Uses the dynamic linker dl_iterate_phdr API to locate all
+ * currently mapped PT_LOAD segments with PF_X flags and then
+ * uses mprotect to mark them execute only */
+int32_t protect_segments() {
+    return dl_iterate_phdr(map_guard_protect_segments_callback, (void *) PROT_EXEC);
+}
+
+/* Undoes the execute only protections put in place by protect_segments() */
+int32_t unprotect_segments() {
+    return dl_iterate_phdr(map_guard_protect_segments_callback, (void *) (PROT_READ|PROT_EXEC));
 }
 
 /* If we are in a process with code that utilizes MPK API
