@@ -64,6 +64,7 @@
         }
 
 #define ROUND_UP_PAGE(N) ((((N) + (g_page_size) - 1) / (g_page_size)) * (g_page_size))
+#define ROUND_DOWN_PAGE(N) (ROUND_UP_PAGE(N) - g_page_size)
 
 #define MG_POISON_BYTE 0xde
 
@@ -78,6 +79,7 @@ typedef struct {
     int use_mapping_cache;
 } mapguard_policy_t;
 
+/* Global policy configuration object */
 mapguard_policy_t g_mapguard_policy;
 
 /* TODO - This structure is not thread safe */
@@ -91,21 +93,21 @@ typedef struct {
     int cache_index;
 #ifdef MPK_SUPPORT
     int xom_enabled;
-    int pkey;
     int pkey_access_rights;
+    int pkey;
 #endif
 } mapguard_cache_entry_t;
 
 vector_t g_map_cache_vector;
 
-/* Thread specific variable for tracking how many
- * pkeys are currently in use per thread. This is
- * currently unused */
-__thread uint8_t pkeys_used;
-
 size_t g_page_size;
 
+inline __attribute__((always_inline)) void *get_base_page(void *addr) {
+    return (void *) ((uintptr_t) addr & ~(g_page_size-1));
+}
+
 mapguard_cache_entry_t *new_mapguard_cache_entry();
+mapguard_cache_entry_t *get_cache_entry(void *addr);
 void *is_mapguard_entry_cached(void *p, void *data);
 void vector_pointer_free(void *p);
 int32_t env_to_int(char *string);
@@ -120,6 +122,8 @@ int32_t unprotect_code();
 int(*g_real_pkey_mprotect)(void *addr, size_t len, int prot, int pkey);
 int(*g_real_pkey_alloc)(unsigned int flags, unsigned int access_rights);
 int(*g_real_pkey_free)(int pkey);
+int(*g_real_pkey_set)(int pkey, unsigned int access_rights);
+int(*g_real_pkey_get)(int pkey);
 #endif
 
 /* Hooked libc functions */
@@ -127,4 +131,3 @@ void*(*g_real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_
 int(*g_real_munmap)(void *addr, size_t length);
 int(*g_real_mprotect)(void *addr, size_t len, int prot);
 void*(*g_real_mremap)(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...);
-

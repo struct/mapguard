@@ -18,7 +18,7 @@ library: clean
 ## Build a debug version of the library
 library_debug: clean
 	mkdir -p ../build/
-	$(CC) $(CFLAGS) $(LIBRARY) $(DEBUG_FLAGS) mapguard.c vector.c -o ../build/libmapguard.so
+	$(CC) $(CFLAGS) $(LIBRARY) $(DEBUG_FLAGS) mapguard.c mapguard_mpk.c vector.c -o ../build/libmapguard.so
 
 ## Build the unit test
 test: clean library
@@ -29,8 +29,8 @@ test: clean library
 ## Build a debug version of the unit test
 debug_test: clean library_debug
 	mkdir -p ../build/
-	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) mapguard_test.c vector.c -o ../build/mapguard_test -L../build/ -lmapguard
-	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) mapguard_thread_test.c vector.c -o ../build/mapguard_thread_test -L../build/ -lmapguard -lpthread
+	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) mapguard_test.c vector.c -o ../build/mapguard_test -L../build/ -lmapguard -ldl
+	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) mapguard_thread_test.c vector.c -o ../build/mapguard_thread_test -L../build/ -lmapguard -lpthread -ldl
 
 ## Build the vector tests
 vector_test:

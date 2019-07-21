@@ -24,6 +24,8 @@ __attribute__((constructor)) void mapguard_ctor() {
     g_real_pkey_mprotect = dlsym(RTLD_NEXT, "pkey_mprotect");
     g_real_pkey_alloc = dlsym(RTLD_NEXT, "pkey_alloc");
     g_real_pkey_free = dlsym(RTLD_NEXT, "pkey_free");
+    g_real_pkey_set = dlsym(RTLD_NEXT, "pkey_set");
+    g_real_pkey_get = dlsym(RTLD_NEXT, "pkey_get");
 #endif
 
     vector_init(&g_map_cache_vector);
@@ -60,10 +62,6 @@ int32_t env_to_int(char *string) {
     return strtoul(p, NULL, 0);
 }
 
-inline __attribute__((always_inline)) void *get_base_page(void *addr) {
-    return (void *) ((uintptr_t) addr & ~(g_page_size-1));
-}
-
 /* Checks if we have a cache entry for this mapping */
 void *is_mapguard_entry_cached(void *p, void *data) {
     mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) p;
@@ -78,6 +76,11 @@ void *is_mapguard_entry_cached(void *p, void *data) {
     }
 
     return NULL;
+}
+
+mapguard_cache_entry_t *get_cache_entry(void *addr) {
+    mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, addr);
+    return mce;
 }
 
 void *map_guard_page(void *addr) {
@@ -106,7 +109,7 @@ void unmap_guard_pages(mapguard_cache_entry_t *mce) {
 }
 
 void map_bottom_guard_page(mapguard_cache_entry_t *mce) {
-    if(mce == NULL || mce->guard_bottom != 0) {
+    if(mce == NULL || mce->guard_bottom) {
         return;
     }
 
@@ -122,7 +125,7 @@ void map_bottom_guard_page(mapguard_cache_entry_t *mce) {
 }
 
 void map_top_guard_page(mapguard_cache_entry_t *mce) {
-    if(mce == NULL || mce->guard_top != 0) {
+    if(mce == NULL || mce->guard_top) {
         return;
     }
 
@@ -138,7 +141,7 @@ void map_top_guard_page(mapguard_cache_entry_t *mce) {
 }
 
 void map_guard_pages(mapguard_cache_entry_t *mce) {
-    if(mce->start == 0 && mce->size != 0) {
+    if(mce->start == 0 && mce->size) {
         return;
     }
 
@@ -217,7 +220,7 @@ int munmap(void *addr, size_t length) {
 
     /* Remove tracked pages from the cache */
     if(g_mapguard_policy.use_mapping_cache) {
-        mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
+        mce = get_cache_entry(addr);
 
         if(mce) {
             LOG("Found mapguard cache entry for mapping %p", mce->start);
@@ -254,17 +257,20 @@ int munmap(void *addr, size_t length) {
                     return ret;
                 }
             } else {
-                ret = g_real_munmap(addr, length);
-
-                /* Continue tracking a failed unmapping */
-                if(ret != 0) {
-                    return ret;
-                }
 #ifdef MPK_SUPPORT
                 if(mce->pkey) {
+                    /* This is a full unmapping so we call pkey_free */
+                    g_real_pkey_set(mce->pkey, 0);
                     g_real_pkey_free(mce->pkey);
                 }
 #endif
+                ret = g_real_munmap(addr, length);
+
+                /* Continue tracking a failed unmapping */
+                if(ret) {
+                    return ret;
+                }
+
                 unmap_guard_pages(mce);
                 LOG("Deleting cache entry for %p", mce->start);
                 vector_delete_at(&g_map_cache_vector, mce->cache_index);
@@ -292,8 +298,7 @@ int mprotect(void *addr, size_t len, int prot) {
 
     /* Disallow transition to/from X (requires the mapping cache) */
     if(g_mapguard_policy.use_mapping_cache) {
-        mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
-
+        mce = get_cache_entry(addr);
 #ifdef MPK_SUPPORT
         if(mce != NULL && mce->xom_enabled == 0) {
 #else
@@ -332,28 +337,12 @@ int mprotect(void *addr, size_t len, int prot) {
     return ret;
 }
 
-/* Hook pkey_mprotect in libc */
-int pkey_mprotect(void *addr, size_t len, int prot, int pkey) {
-    /* No support for other pkey callers just yet */
-    return ERROR;
-}
-
-int pkey_alloc(unsigned int flags, unsigned int access_rights) {
-    /* No support for other pkey callers just yet */
-    return ERROR;
-}
-
-int pkey_free(int pkey) {
-    /* No support for other pkey callers just yet */
-    return ERROR;
-}
-
 /* Hook mremap in libc */
 void* mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...) {
     void *map_ptr = g_real_mremap(__addr, __old_len, __new_len, __flags);
 
     if(g_mapguard_policy.use_mapping_cache) {
-        mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) __addr);
+        mapguard_cache_entry_t *mce = get_cache_entry(__addr);
 
         /* We are remapping a previously tracked allocation. This
          * means we may have to reallocate guard pages and update
@@ -376,21 +365,14 @@ void* mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
             map_guard_pages(mce);
 
 #ifdef MPK_SUPPORT
-            /* If this mapping had previously utilized MPK support we
-             * need to setup that up again */
+            /* If this mapping had previously utilized MPK
+             * support we need to setup that up again. We
+             * cheat and reuse the existing pkey and assume
+             * the desired access rights are the same */
             if(mce->pkey) {
-                g_real_pkey_free(mce->pkey);
-                mce->pkey = g_real_pkey_alloc(0, mce->pkey_access_rights);
-
-                /* This shouldn't happen... */
-                if(mce->pkey == 0) {
-                    LOG("Failed to allocate protection key for address %p", mce->start);
-                    return map_ptr;
-                }
-
                 int32_t ret = g_real_pkey_mprotect(mce->start, mce->size, mce->current_prot, mce->pkey);
 
-                if(ret != 0) {
+                if(ret) {
                     LOG("Failed to call pkey_mprotect for address %p", mce->start);
                 }
             }
@@ -400,207 +382,3 @@ void* mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
 
     return map_ptr;
 }
-
-#ifdef MPK_SUPPORT
-
-/* Memory Protection Keys is a feature on newer Intel x64 Skylake processors
- * that allows a program set permission bits on a per-page mapping. The advantage
- * of MPK over mprotect() is that its a lot faster. This feature of MapGuard
- * has only been tested on AWS EC2 C5 instances and it may not even work there
- * depending on your kernel version and program design.
- *
- * To know if your kernel supports MPK try the following:
- * cat /proc/cpuinfo | grep -E 'pku|ospke'
- *
- * The Map Guard APIs that work with MPK always works terms of page ranges.
- * This means for API functions like protect_mapping which take a start
- * and end pointer we may end up protecting an entire region of memory
- * and not just the page represented by the start pointer. Theres no easy
- * way to implement this except for with explicit documentation detailing
- * the implicit behavior.
- */
-
-/* memcpy_xom - Allocates writeable memory, copies src_size bytes from src
- * into those pages, and then marks the allocation execute only. Upon
- * failure it returns MAP_FAILED. Upon success it returns a pointer to the
- * Execute Only memory region */
-void *memcpy_xom(size_t allocation_size, void *src, size_t src_size) {
-
-    if(g_mapguard_policy.use_mapping_cache == 0) {
-        LOG("Cannot allocate XOM memory without MG_USE_MAPPING_CACHE enabled");
-        return MAP_FAILED;
-    }
-
-    if(src == NULL || src_size == 0) {
-        LOG("XOM allocation failed, src is %p and src_size = %ld", src, src_size);
-        return MAP_FAILED;
-    }
-
-    if(src_size > allocation_size) {
-        LOG("XOM allocation failed, src size larger than allocation size")
-        return MAP_FAILED;
-    }
-
-    void *map_ptr = g_real_mmap(0x0, allocation_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-
-    if(map_ptr == MAP_FAILED) {
-        LOG("XOM mmap failed");
-        return MAP_FAILED;
-    }
-
-    memcpy(map_ptr, src, src_size);
-
-    mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) malloc(sizeof(mapguard_cache_entry_t));
-    memset(mce, 0x0, sizeof(mapguard_cache_entry_t));
-
-    mce->start = map_ptr;
-    mce->size = allocation_size;
-    mce->immutable_prot |= PROT_EXEC;
-    mce->current_prot = PROT_EXEC;
-    mce->xom_enabled = 1;
-    /* We use -1 here as a stand in for the kernels execute_only_pkey */
-    mce->pkey = -1;
-    mce->pkey_access_rights = PKEY_DISABLE_ACCESS;
-
-    int32_t ret = g_real_mprotect(map_ptr, allocation_size, PROT_EXEC);
-
-    if(ret != 0) {
-        LOG("XOM mprotect failed, unmapping memory");
-        g_real_munmap(map_ptr, allocation_size);
-        free(mce);
-        return MAP_FAILED;
-    }
-
-    mce->cache_index = vector_push(&g_map_cache_vector, mce);
-
-    return map_ptr;
-}
-
-int munmap_xom(void *addr, size_t length) {
-    mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
-
-    if(mce != NULL) {
-        LOG("Found mapguard cache entry for mapping %p", mce->start);
-        g_real_pkey_free(mce->pkey);
-        vector_delete_at(&g_map_cache_vector, mce->cache_index);
-        free(mce);
-    } else {
-        return ERROR;
-    }
-
-    return OK;
-}
-
-/* addr - Address within a page range to protect
- *
- * This function derives the base page start is mapped in
- * and then determines if Map Guard is currently tracking
- * it. If so we check for an existing pkey or alloc a new
- * one. A -1 return value means we are out of pkeys or
- * the value of start was bad.
- *
- * If this function detects we are tracking an allocation
- * of pages this address falls within the entire range will
- * be protected with MPK, not just the page its on.
- */
-int32_t protect_mapping(void *addr) {
-    if(addr == NULL) {
-        return ERROR;
-    }
-
-    mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, addr);
-
-    if(mce == NULL) {
-        /* We aren't currently tracking these pages, so lets
-         * start doing that. We don't allocate guard pages
-         * because no r/w operations will take place here */
-        mce = new_mapguard_cache_entry();
-        mce->start = get_base_page(addr);
-        /* We only know a single address, so we default to 1 page */
-        mce->size = g_page_size;
-        mce->immutable_prot |= PROT_NONE;
-        mce->current_prot = PROT_NONE;
-        mce->cache_index = vector_push(&g_map_cache_vector, mce);
-    }
-
-    mce->pkey_access_rights = PKEY_DISABLE_ACCESS;
-
-    /* If there an existing key then we free it and allocate a new one */
-    if(mce->pkey != 0) {
-        g_real_pkey_free(mce->pkey);
-        pkeys_used--;
-    }
-
-    mce->pkey = g_real_pkey_alloc(0, mce->pkey_access_rights);
-
-    if(mce->pkey == 0) {
-        LOG("Failed to allocate protection key for address %p", mce->start);
-        return ERROR;
-    }
-
-    pkeys_used++;
-
-    int32_t ret = g_real_pkey_mprotect(mce->start, mce->size, PROT_NONE, mce->pkey);
-
-    if(ret != 0) {
-        LOG("Failed to call pkey_mprotect for address %p", mce->start);
-        return ret;
-    }
-
-    return OK;
-}
-
-int32_t unprotect_mapping(void *addr, int new_prot) {
-    if(addr == NULL) {
-        return ERROR;
-    }
-
-    mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, addr);
-
-    if(mce != NULL && mce->pkey != 0) {
-        mprotect(get_base_page(addr), mce->size, new_prot);
-        mce->immutable_prot |= new_prot;
-        mce->current_prot = new_prot;
-        mce->pkey_access_rights = 0;
-        g_real_pkey_free(mce->pkey);
-        mce->pkey = 0;
-    }
-
-    return OK;
-}
-
-static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t size, void *data) {
-    const char *lib_name = "unknown_object";
-
-    if(strlen(info->dlpi_name) != 0) {
-        lib_name = info->dlpi_name;
-    }
-
-    void *load_address = (void *) info->dlpi_addr;
-    int32_t ret = OK;
-
-    for(uint32_t i = 0; i < info->dlpi_phnum; i++) {
-        if(info->dlpi_phdr[i].p_type == PT_LOAD && (info->dlpi_phdr[i].p_flags & PF_X)) {
-            ret |= g_real_mprotect(load_address, info->dlpi_phdr[i].p_memsz, (int32_t) data);
-        }
-    }
-
-    return ret;
-}
-
-/* Uses the dynamic linker dl_iterate_phdr API to locate all
- * currently mapped PT_LOAD segments with PF_X flags and then
- * uses mprotect to mark them execute only */
-int32_t protect_code() {
-    return dl_iterate_phdr(map_guard_protect_code_callback, (void *)PROT_EXEC);
-}
-
-/* Locate all currently mapped PT_LOAD segments with PF_X flags
- * and mark them PROT_READ|PROT_EXEC. Its possible this will find
- * segments of code that were not found when you called protect_code
- * but that should be harmless */
-int32_t unprotect_code() {
-    return dl_iterate_phdr(map_guard_protect_code_callback, (void *)(PROT_READ|PROT_EXEC));
-}
-
-#endif
