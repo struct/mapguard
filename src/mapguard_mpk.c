@@ -43,6 +43,8 @@ void *mmap_xom(size_t allocation_size, void *src, size_t src_size) {
         return MAP_FAILED;
     }
 
+    allocation_size = ROUND_UP_PAGE((uint64_t) allocation_size);
+
     if(src_size > allocation_size) {
         LOG("XOM allocation failed, src size larger than allocation size")
         return MAP_FAILED;
