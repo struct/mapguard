@@ -15,6 +15,26 @@ MG_USE_MAPPING_CACHE - Enable the mapping cache, required for guard page allocat
 
 This library requires hooking `mmap`, `munmap`, `mprotect`, and `mremap`. There are still corner cases that need support. This library introduces some performance overhead, especially if guard pages are enabled. Map Guard has only been tested on 64 bit Linux but should work on 32 bit programs and Mac OS with minor modifications. 
 
+## MPK API
+
+```
+void *memcpy_xom(size_t allocation_size, void *src, size_t src_size) - Uses mmap to allocate allocation_size bytes of memory, copies src_size instructions from src and marks the memory execute only
+
+int free_xom(void *addr, size_t length) - Free the memory allocated with memcpy_xom()
+
+int32_t protect_mapping(void *addr) - Protects a single page, or range of pages if allocated via MapGuard
+
+int32_t unprotect_mapping(void *addr, int new_prot) - Undoes the protection provided by protect_mapping()
+
+int32_t protect_segments() - Marks all ELF PF_X segments as execute only
+
+int32_t unprotect_segments() - Undoes the protection provided by protect_segments()
+
+int32_t protect_code() - Uses a heuristic to find all .text pages for all loaded ELF objects and marks them execute only
+
+int32_t unprotect_code() - Undoes the protection provided by protect_code()
+```
+
 ## Testing
 
 You can test Map Guard by running `./run_tests.sh`:

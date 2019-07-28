@@ -114,7 +114,7 @@ int32_t env_to_int(char *string);
 
 #ifdef MPK_SUPPORT
 void *memcpy_xom(size_t allocation_size, void *src, size_t src_size);
-int munmap_xom(void *addr, size_t length);
+int free_xom(void *addr, size_t length);
 int32_t protect_mapping(void *addr);
 int32_t unprotect_mapping(void *addr, int new_prot);
 int32_t protect_segments();

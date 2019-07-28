@@ -22,74 +22,13 @@
  * the implicit behavior.
  */
 
-/* TODO - Expose an API for:
- * : Secure page allocation. Tracks allocated pages and uses madvise so they
- *   don't COW into forked children. Lock and unlock features for secure pages
- *   where mapguard handles the pkey calls
- */
-
-/* mmap_xom - Allocates writeable memory, copies src_size bytes from src
- * into those pages, and then marks the allocation execute only. Upon
- * failure it returns MAP_FAILED just like mmap() */
-void *mmap_xom(size_t allocation_size, void *src, size_t src_size) {
-
-    if(g_mapguard_policy.use_mapping_cache == 0) {
-        LOG("Cannot allocate XOM memory without MG_USE_MAPPING_CACHE enabled");
-        //return MAP_FAILED;
-    }
-
-    if(src == NULL || src_size == 0) {
-        LOG("XOM allocation failed, src is %p and src_size = %ld", src, src_size);
-        return MAP_FAILED;
-    }
-
-    allocation_size = ROUND_UP_PAGE((uint64_t) allocation_size);
-
-    if(src_size > allocation_size) {
-        LOG("XOM allocation failed, src size larger than allocation size")
-        return MAP_FAILED;
-    }
-
-    void *map_ptr = mmap(0x0, allocation_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-
-    if(map_ptr == MAP_FAILED) {
-        LOG("XOM mmap failed");
-        return MAP_FAILED;
-    }
-
-    memcpy(map_ptr, src, src_size);
-
-    mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) malloc(sizeof(mapguard_cache_entry_t));
-    memset(mce, 0x0, sizeof(mapguard_cache_entry_t));
-
-    mce->start = map_ptr;
-    mce->size = allocation_size;
-    mce->immutable_prot = PROT_EXEC;
-    mce->current_prot = PROT_EXEC;
-    mce->xom_enabled = 1;
-    /* By marking the page PROT_EXEC only we use the kernels execute_only_pkey */
-    mce->pkey = -1;
-    mce->pkey_access_rights = PKEY_DISABLE_ACCESS;
-    mce->cache_index = vector_push(&g_map_cache_vector, mce);
-
-    int32_t ret = mprotect(map_ptr, allocation_size, PROT_EXEC);
-
-    if(ret == 0) {
-        LOG("XOM mprotect failed, unmapping memory");
-        munmap(map_ptr, allocation_size);
-        return MAP_FAILED;
-    }
-
-    return map_ptr;
-}
-
-int munmap_xom(void *addr, size_t length) {
+/* Free XOM allocated with memcpy_xom */
+int free_xom(void *addr, size_t length) {
     mapguard_cache_entry_t *mce = (mapguard_cache_entry_t *) vector_for_each(&g_map_cache_vector, (vector_for_each_callback_t *) is_mapguard_entry_cached, (void *) addr);
 
     if(mce != NULL) {
         LOG("Found mapguard cache entry for mapping %p", mce->start);
-        g_real_pkey_set(mce->pkey, 0);
-        g_real_pkey_free(mce->pkey);
+        g_real_munmap(mce->start, mce->size);
         vector_delete_at(&g_map_cache_vector, mce->cache_index);
         free(mce);
     } else {
@@ -114,6 +53,8 @@ void *memcpy_xom(size_t allocation_size, void *src, size_t src_size) {
         LOG("XOM allocation failed, src is %p and src_size = %ld", src, src_size);
         return MAP_FAILED;
     }
+
+    allocation_size = ROUND_UP_PAGE((uint64_t) allocation_size);
 
     if(src_size > allocation_size) {
         LOG("XOM allocation failed, src size larger than allocation size")
@@ -221,7 +162,7 @@ int32_t protect_mapping(void *addr) {
     fail:
 
     if(new_mce) {
-        if(mce->pkey) {
+        if(mce->pkey != 0) {
             g_real_pkey_set(mce->pkey, 0);
             g_real_pkey_free(mce->pkey);
         }
