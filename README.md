@@ -11,6 +11,7 @@ MG_ENABLE_GUARD_PAGES - Force top and bottom guard page allocations
 MG_PANIC_ON_VIOLATION - Instructs Map Guard to abort the process when these policies are violated
 MG_POISON_ON_ALLOCATION - Fill all allocated pages with a byte pattern 0xde
 MG_USE_MAPPING_CACHE - Enable the mapping cache, required for guard page allocation
+MG_ENABLE_SYSLOG - Enable logging of policy violations to syslog
 ```
 
 This library requires hooking `mmap`, `munmap`, `mprotect`, and `mremap`. There are still corner cases that need support. This library introduces some performance overhead, especially if guard pages are enabled. Map Guard has only been tested on 64 bit Linux but should work on 32 bit programs and Mac OS with minor modifications. 
