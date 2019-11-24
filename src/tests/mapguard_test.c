@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
-#include "mapguard.h"
+#include "../mapguard.h"
 
 #define STATIC_ADDRESS 0x7f3bffaaa000
 #define ALLOC_SIZE 4096 * 8
@@ -219,7 +219,7 @@ void check_map_partial_unmap_top() {
     munmap(ptr, 4096);
 }
 
-#ifdef MPK_SUPPORT
+#if MPK_SUPPORT
 void check_mpk_xom() {
     char *x86_nops_cc = "\x90\x90\x90\x90\xcc";
     void *ptr = memcpy_xom(4096, x86_nops_cc, strlen(x86_nops_cc));
@@ -272,9 +272,8 @@ int main(int argc, char *argv[]) {
     check_map_partial_unmap_bottom();
     check_map_partial_unmap_top();
 
+#if MPK_SUPPORT
     //check_mpk_xom();
-
-#ifdef MPK_SUPPORT
     check_protect_mapping();
     protect_code();
     unprotect_code();

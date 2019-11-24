@@ -3,7 +3,7 @@
 
 #include "mapguard.h"
 
-#ifdef MPK_SUPPORT
+#if MPK_SUPPORT
 
 /* Memory Protection Keys is a feature on Intel x64 Skylake and newer processors
  * that allows a program to set permission bits on a per-page mapping. The advantage
@@ -345,8 +345,9 @@ static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t
             }
 
             int32_t unprotected_exec = info->dlpi_phdr[i].p_memsz - text_size;
-            LOG("mprotect(%p, %ld)", text_start, text_size);
             LOG("An estimated %x bytes of this segment is still readable", unprotected_exec);
+
+            LOG("mprotect(%p, %ld)", text_start, text_size);
             int ret = g_real_mprotect(text_start, text_size, (int32_t) data);
 
             /* Log the error but this is best effort so continue */

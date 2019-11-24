@@ -14,13 +14,14 @@ __attribute__((constructor)) void mapguard_ctor() {
     ENV_TO_INT(MG_PANIC_ON_VIOLATION, g_mapguard_policy.panic_on_violation);
     ENV_TO_INT(MG_POISON_ON_ALLOCATION, g_mapguard_policy.poison_on_allocation);
     ENV_TO_INT(MG_USE_MAPPING_CACHE, g_mapguard_policy.use_mapping_cache);
+    ENV_TO_INT(MG_ENABLE_SYSLOG, g_mapguard_policy.enable_syslog);
 
     g_real_mmap = dlsym(RTLD_NEXT, "mmap");
     g_real_munmap = dlsym(RTLD_NEXT, "munmap");
     g_real_mprotect = dlsym(RTLD_NEXT, "mprotect");
     g_real_mremap = dlsym(RTLD_NEXT, "mremap");
 
-#ifdef MPK_SUPPORT
+#if MPK_SUPPORT
     g_real_pkey_mprotect = dlsym(RTLD_NEXT, "pkey_mprotect");
     g_real_pkey_alloc = dlsym(RTLD_NEXT, "pkey_alloc");
     g_real_pkey_free = dlsym(RTLD_NEXT, "pkey_free");
@@ -28,12 +29,20 @@ __attribute__((constructor)) void mapguard_ctor() {
     g_real_pkey_get = dlsym(RTLD_NEXT, "pkey_get");
 #endif
 
+    if(g_mapguard_policy.enable_syslog) {
+        openlog("mapguard", LOG_CONS|LOG_PID, LOG_AUTH);
+    }
+
     vector_init(&g_map_cache_vector);
 
     g_page_size = getpagesize();
 }
 
 __attribute((destructor)) void mapguard_dtor() {
+    if(g_mapguard_policy.enable_syslog) {
+        closelog();
+    }
+
     /* Erase all cache entries */
     if(g_mapguard_policy.use_mapping_cache) {
         vector_delete_callback_t *dc = &vector_pointer_free;
@@ -166,14 +175,14 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 
     /* Disallow RWX mappings */
     if(g_mapguard_policy.disallow_rwx && (prot & PROT_WRITE) && (prot & PROT_EXEC)) {
-        LOG("Disallowing RWX memory allocation");
+        SYSLOG("Disallowing RWX memory allocation");
         MAYBE_PANIC
         return MAP_FAILED;
     }
 
     /* Disallow mappings at a hardcoded address. This weakens ASLR */
     if(addr != 0 && g_mapguard_policy.disallow_static_address) {
-        LOG("Disallowing memory allocation at static address %p", addr);
+        SYSLOG("Disallowing memory allocation at static address %p", addr);
         MAYBE_PANIC
         return MAP_FAILED;
     }
@@ -257,7 +266,7 @@ int munmap(void *addr, size_t length) {
                     return ret;
                 }
             } else {
-#ifdef MPK_SUPPORT
+#if MPK_SUPPORT
                 if(mce->pkey) {
                     /* This is a full unmapping so we call pkey_free */
                     g_real_pkey_set(mce->pkey, 0);
@@ -291,7 +300,7 @@ int mprotect(void *addr, size_t len, int prot) {
 
     /* Disallow RWX mappings */
     if(g_mapguard_policy.disallow_rwx && (prot & PROT_WRITE) && (prot & PROT_EXEC)) {
-        LOG("Disallowing RWX mprotect");
+        SYSLOG("Disallowing RWX mprotect");
         MAYBE_PANIC
         return ERROR;
     }
@@ -299,20 +308,20 @@ int mprotect(void *addr, size_t len, int prot) {
     /* Disallow transition to/from X (requires the mapping cache) */
     if(g_mapguard_policy.use_mapping_cache) {
         mce = get_cache_entry(addr);
-#ifdef MPK_SUPPORT
+#if MPK_SUPPORT
         if(mce != NULL && mce->xom_enabled == 0) {
 #else
         if(mce != NULL) {
 #endif
             if(g_mapguard_policy.disallow_transition_to_x && (prot & PROT_EXEC) && (mce->immutable_prot & PROT_WRITE)) {
-                LOG("Cannot allow mapping %p to be set PROT_EXEC, it was previously PROT_WRITE", addr);
+                SYSLOG("Cannot allow mapping %p to be set PROT_EXEC, it was previously PROT_WRITE", addr);
                 MAYBE_PANIC
                 errno = EINVAL;
                 return ERROR;
             }
 
             if(g_mapguard_policy.disallow_transition_from_x && (prot & PROT_WRITE) && (mce->immutable_prot & PROT_EXEC)) {
-                LOG("Cannot allow mapping %p to transition from PROT_EXEC to PROT_WRITE", addr);
+                SYSLOG("Cannot allow mapping %p to transition from PROT_EXEC to PROT_WRITE", addr);
                 MAYBE_PANIC
                 errno = EINVAL;
                 return ERROR;
@@ -364,7 +373,7 @@ void* mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
             mce->size = __new_len;
             map_guard_pages(mce);
 
-#ifdef MPK_SUPPORT
+#if MPK_SUPPORT
             /* If this mapping had previously utilized MPK
              * support we need to setup that up again. We
              * cheat and reuse the existing pkey and assume

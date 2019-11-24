@@ -7,6 +7,7 @@ set env MG_DISALLOW_STATIC_ADDRESS=1
 set env MG_ENABLE_GUARD_PAGES=1
 set env MG_DISALLOW_X_TRANSITION=1
 set env MG_POISON_ON_ALLOCATION=1
+set env MG_ENABLE_SYSLOG=1
 set env LD_LIBRARY_PATH=build/
 set env LD_PRELOAD=build/libmapguard.so
 r

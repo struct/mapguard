@@ -8,7 +8,7 @@
 #include <sys/mman.h>
 #include <pthread.h>
 
-#include "mapguard.h"
+#include "../mapguard.h"
 
 void *secret_data;
 

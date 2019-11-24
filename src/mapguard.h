@@ -11,10 +11,14 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <sys/mman.h>
-#include <elf.h>
 #include <link.h>
+#include <syslog.h>
 
-#include "vector.h"
+#if MPK_SUPPORT
+#include <elf.h>
+#endif
+
+#include "../vector_t/vector.h"
 
 #define OK 0
 #define ERROR -1
@@ -30,11 +34,17 @@
         fprintf(stdout, "[LOG][%d](%s) " msg "\n", getpid(), __FUNCTION__, ##__VA_ARGS__); \
         fflush(stdout);
 #else
-    #define LOG_ERROR(...)
-    #define LOG(...)
+    #define LOG_ERROR(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
+    #define LOG(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
 #endif
 
-/* Environment variable configurations */
+#define SYSLOG(msg, ...) \
+        if(g_mapguard_policy.enable_syslog) {       \
+            syslog(LOG_ALERT, msg, ##__VA_ARGS__);   \
+        }   \
+        LOG(msg, ##__VA_ARGS__)
+
+/* MapGuard Environment variable configurations */
 
 /* Disallows PROT_READ, PROT_WRITE, PROT_EXEC mappings */
 #define MG_DISALLOW_RWX "MG_DISALLOW_RWX"
@@ -52,6 +62,8 @@
 #define MG_POISON_ON_ALLOCATION "MG_POISON_ON_ALLOCATION"
 /* Enable the mapping cache, required for guard page allocation */
 #define MG_USE_MAPPING_CACHE "MG_USE_MAPPING_CACHE"
+/* Enable telemetry via syslog */
+#define MG_ENABLE_SYSLOG "MG_ENABLE_SYSLOG"
 
 #define ENV_TO_INT(env, config) \
         if(env_to_int(env)) {   \
@@ -77,6 +89,7 @@ typedef struct {
     int panic_on_violation;
     int poison_on_allocation;
     int use_mapping_cache;
+    int enable_syslog;
 } mapguard_policy_t;
 
 /* Global policy configuration object */
@@ -91,7 +104,7 @@ typedef struct {
     int immutable_prot;
     int current_prot;
     int cache_index;
-#ifdef MPK_SUPPORT
+#if MPK_SUPPORT
     int xom_enabled;
     int pkey_access_rights;
     int pkey;
@@ -112,7 +125,7 @@ void *is_mapguard_entry_cached(void *p, void *data);
 void vector_pointer_free(void *p);
 int32_t env_to_int(char *string);
 
-#ifdef MPK_SUPPORT
+#if MPK_SUPPORT
 void *memcpy_xom(size_t allocation_size, void *src, size_t src_size);
 int free_xom(void *addr, size_t length);
 int32_t protect_mapping(void *addr);
