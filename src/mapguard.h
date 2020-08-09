@@ -1,18 +1,18 @@
 /* Reference implementation of map guard
- * Copyright Chris Rohlf - 2019 */
+ * Copyright Chris Rohlf - 2020 */
 
 #define _GNU_SOURCE
-#include <stdio.h>
-#include <stdint.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
 #include <assert.h>
 #include <dlfcn.h>
 #include <errno.h>
-#include <sys/mman.h>
 #include <link.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
 #include <syslog.h>
+#include <unistd.h>
 
 #if MPK_SUPPORT
 #include <elf.h>
@@ -22,27 +22,28 @@
 
 #define OK 0
 #define ERROR -1
+#define GUARD_PAGE_COUNT 2
 
 /* If you want to log security policy violations then
  * modifying this macro is the easiest way to do it */
 #if DEBUG
-    #define LOG_ERROR(msg, ...) \
-        fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__); \
-        fflush(stderr);
+#define LOG_ERROR(msg, ...)                                                                                    \
+    fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__); \
+    fflush(stderr);
 
-    #define LOG(msg, ...)   \
-        fprintf(stdout, "[LOG][%d](%s) " msg "\n", getpid(), __FUNCTION__, ##__VA_ARGS__); \
-        fflush(stdout);
+#define LOG(msg, ...)                                                                  \
+    fprintf(stdout, "[LOG][%d](%s) " msg "\n", getpid(), __FUNCTION__, ##__VA_ARGS__); \
+    fflush(stdout);
 #else
-    #define LOG_ERROR(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
-    #define LOG(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
+#define LOG_ERROR(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
+#define LOG(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
 #endif
 
-#define SYSLOG(msg, ...) \
-        if(g_mapguard_policy.enable_syslog) {       \
-            syslog(LOG_ALERT, msg, ##__VA_ARGS__);   \
-        }   \
-        LOG(msg, ##__VA_ARGS__)
+#define SYSLOG(msg, ...)                       \
+    if(g_mapguard_policy.enable_syslog) {      \
+        syslog(LOG_ALERT, msg, ##__VA_ARGS__); \
+    }                                          \
+    LOG(msg, ##__VA_ARGS__)
 
 /* MapGuard Environment variable configurations */
 
@@ -66,16 +67,16 @@
 #define MG_ENABLE_SYSLOG "MG_ENABLE_SYSLOG"
 
 #define ENV_TO_INT(env, config) \
-        if(env_to_int(env)) {   \
-            config = 1;         \
-        }
+    if(env_to_int(env)) {       \
+        config = 1;             \
+    }
 
-#define MAYBE_PANIC                                 \
-        if(g_mapguard_policy.panic_on_violation) {  \
-            abort();                                \
-        }
+#define MAYBE_PANIC                            \
+    if(g_mapguard_policy.panic_on_violation) { \
+        abort();                               \
+    }
 
-#define ROUND_UP_PAGE(N) ((((N) + (g_page_size) - 1) / (g_page_size)) * (g_page_size))
+#define ROUND_UP_PAGE(N) ((((N) + (g_page_size) -1) / (g_page_size)) * (g_page_size))
 #define ROUND_DOWN_PAGE(N) (ROUND_UP_PAGE(N) - g_page_size)
 
 #define MG_POISON_BYTE 0xde
@@ -116,7 +117,7 @@ vector_t g_map_cache_vector;
 size_t g_page_size;
 
 inline __attribute__((always_inline)) void *get_base_page(void *addr) {
-    return (void *) ((uintptr_t) addr & ~(g_page_size-1));
+    return (void *) ((uintptr_t) addr & ~(g_page_size - 1));
 }
 
 mapguard_cache_entry_t *new_mapguard_cache_entry();
@@ -134,15 +135,15 @@ int32_t protect_segments();
 int32_t unprotect_segments();
 int32_t protect_code();
 int32_t unprotect_code();
-int(*g_real_pkey_mprotect)(void *addr, size_t len, int prot, int pkey);
-int(*g_real_pkey_alloc)(unsigned int flags, unsigned int access_rights);
-int(*g_real_pkey_free)(int pkey);
-int(*g_real_pkey_set)(int pkey, unsigned int access_rights);
-int(*g_real_pkey_get)(int pkey);
+int (*g_real_pkey_mprotect)(void *addr, size_t len, int prot, int pkey);
+int (*g_real_pkey_alloc)(unsigned int flags, unsigned int access_rights);
+int (*g_real_pkey_free)(int pkey);
+int (*g_real_pkey_set)(int pkey, unsigned int access_rights);
+int (*g_real_pkey_get)(int pkey);
 #endif
 
 /* Hooked libc functions */
-void*(*g_real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
-int(*g_real_munmap)(void *addr, size_t length);
-int(*g_real_mprotect)(void *addr, size_t len, int prot);
-void*(*g_real_mremap)(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...);
+void *(*g_real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+int (*g_real_munmap)(void *addr, size_t length);
+int (*g_real_mprotect)(void *addr, size_t len, int prot);
+void *(*g_real_mremap)(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...);

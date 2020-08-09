@@ -1,20 +1,26 @@
 # Map Guard
 
-Map Guard is a proof of concept memory safety exploit mitigation that protects mmap based page allocations. It enforces a simple set of allocation security policies configurable via environment variables:
+Map Guard is a proof of concept memory proxy that aims to mitigate memory safety exploits by intercepting, modifying, and logging `mmap` based page allocations. It enforces a simple set of allocation security policies configurable via environment variables. It works transparently on open and closed source programs with no source modifications in the target required. It also ships with an API for using Intel MPK extensions if your hardware supports it. Map Guard has only been tested on 64 bit Linux but should work on 32 bit programs and Mac OS with minor modifications.
 
-```
-MG_DISALLOW_RWX - Disallows PROT_READ, PROT_WRITE, PROT_EXEC mappings
-MG_DISALLOW_TRANSITION_TO_X - Disallows RW allocations to ever transition to PROT_EXEC
-MG_DISALLOW_TRANSITION_FROM_X - Disallows R-X allocations to ever transition to PROT_WRITE
-MG_DISALLOW_STATIC_ADDRESS - Disallows page allocations at a set address (enforces ASLR)
-MG_ENABLE_GUARD_PAGES - Force top and bottom guard page allocations
-MG_PANIC_ON_VIOLATION - Instructs Map Guard to abort the process when these policies are violated
-MG_POISON_ON_ALLOCATION - Fill all allocated pages with a byte pattern 0xde
-MG_USE_MAPPING_CACHE - Enable the mapping cache, required for guard page allocation
-MG_ENABLE_SYSLOG - Enable logging of policy violations to syslog
-```
+## Implementation
 
-This library requires hooking `mmap`, `munmap`, `mprotect`, and `mremap`. There are still corner cases that need support. This library introduces some performance overhead, especially if guard pages are enabled. Map Guard has only been tested on 64 bit Linux but should work on 32 bit programs and Mac OS with minor modifications. 
+Map Guard uses the dynamic linker interface via `dlsym` to hook libc functions. When calls to those functions are intercepted Map Guard will inspect their arguments and then consultits policies for whether that behavior should be allowed, denied, or logged.
+
+The library requires hooking `mmap`, `munmap`, `mprotect`, and `mremap`. Enabling all protections may introduce some performance and memory overhead, especially if guard pages are enabled.
+
+## Configuration
+
+The following functionality can be enabled/disabled via environment variables:
+
+`MG_DISALLOW_RWX` - Disallows PROT_READ, PROT_WRITE, PROT_EXEC mappings
+`MG_DISALLOW_TRANSITION_TO_X` - Disallows RW allocations to ever transition to PROT_EXEC
+`MG_DISALLOW_TRANSITION_FROM_X` - Disallows R-X allocations to ever transition to PROT_WRITE
+`MG_DISALLOW_STATIC_ADDRESS` - Disallows page allocations at a set address (enforces ASLR)
+`MG_ENABLE_GUARD_PAGES` - Force guard page allocations on either side of all mappings
+`MG_PANIC_ON_VIOLATION` - Instructs Map Guard to abort the process when these policies are violated
+`MG_POISON_ON_ALLOCATION` - Fill all allocated pages with a byte pattern 0xde
+`MG_USE_MAPPING_CACHE` - Enable the mapping cache, required for guard pages and other protections
+`MG_ENABLE_SYSLOG` - Enable logging of policy violations to syslog
 
 ## MPK API
 
@@ -114,6 +120,6 @@ LD_PRELOAD=build/mapguard.so ./your_program
 
 ## Who
 
-Copyright Chris Rohlf - 2019
+Copyright Chris Rohlf - 2020
 
 chris.rohlf@gmail.com

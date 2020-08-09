@@ -1,12 +1,12 @@
 #define _GNU_SOURCE
-#include <stdio.h>
-#include <stdint.h>
-#include <string.h>
-#include <stdlib.h>
 #include <assert.h>
-#include <unistd.h>
-#include <sys/mman.h>
 #include <pthread.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include "../mapguard.h"
 
@@ -22,7 +22,7 @@ void *worker_thread_enter(void *d) {
     /*uint8_t *v = &secret_data[2];
     LOG("In worker thread %x", *v);*/
 
-    unprotect_mapping(secret_data, PROT_READ|PROT_WRITE);
+    unprotect_mapping(secret_data, PROT_READ | PROT_WRITE);
 
     return OK;
 }

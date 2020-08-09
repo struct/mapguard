@@ -1,5 +1,5 @@
 /* Reference implementation of map guard
- * Copyright Chris Rohlf - 2019 */
+ * Copyright Chris Rohlf - 2020 */
 
 #include "mapguard.h"
 
@@ -61,7 +61,7 @@ void *memcpy_xom(size_t allocation_size, void *src, size_t src_size) {
         return MAP_FAILED;
     }
 
-    void *map_ptr = g_real_mmap(0x0, allocation_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+    void *map_ptr = g_real_mmap(0x0, allocation_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
     if(map_ptr == MAP_FAILED) {
         LOG("XOM mmap failed");
@@ -159,7 +159,7 @@ int32_t protect_mapping(void *addr) {
 
     return OK;
 
-    fail:
+fail:
 
     if(new_mce) {
         if(mce->pkey != 0) {
@@ -238,7 +238,7 @@ static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t
     }
 
     void *load_address = (void *) info->dlpi_addr;
-    ElfW(Phdr*) phdr = NULL;
+    ElfW(Phdr *) phdr = NULL;
 
     /* Marking an entire PF_X load segment as execute-only can
      * have unintended side effects. This is especially true when
@@ -253,21 +253,21 @@ static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t
      * PT_DYNAMIC segment. We need it to find symbols */
     for(uint32_t i = 0; i < info->dlpi_phnum; i++) {
         if(info->dlpi_phdr[i].p_type == PT_DYNAMIC) {
-            phdr = (ElfW(Phdr*)) &info->dlpi_phdr[i];
-            LOG("Found PT_DYNAMIC segment @ %p %lx for object %s" , phdr, info->dlpi_phdr[i].p_vaddr, object_name);
+            phdr = (ElfW(Phdr *)) & info->dlpi_phdr[i];
+            LOG("Found PT_DYNAMIC segment @ %p %lx for object %s", phdr, info->dlpi_phdr[i].p_vaddr, object_name);
             break;
         }
     }
 
-    ElfW(Dyn*) dyn = (ElfW(Dyn*))(phdr->p_vaddr + load_address);
-    ElfW(Sym*) sym = NULL;
+    ElfW(Dyn *) dyn = (ElfW(Dyn *))(phdr->p_vaddr + load_address);
+    ElfW(Sym *) sym = NULL;
     ElfW(Word) symbol_count = 0;
-    ElfW(Word*) dt_hash = NULL;
-    ElfW(Word*) dt_gnu_hash = NULL;
+    ElfW(Word *) dt_hash = NULL;
+    ElfW(Word *) dt_gnu_hash = NULL;
 
-    for(uint32_t i = 0; i < (phdr->p_filesz/sizeof(ElfW(Dyn))); i++) {
+    for(uint32_t i = 0; i < (phdr->p_filesz / sizeof(ElfW(Dyn))); i++) {
         if(dyn[i].d_tag == DT_HASH) {
-            dt_hash = (ElfW(Word*)) dyn[i].d_un.d_ptr;
+            dt_hash = (ElfW(Word *)) dyn[i].d_un.d_ptr;
 
             if(dt_hash == NULL) {
                 continue;
@@ -281,8 +281,8 @@ static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t
             dt_gnu_hash = (ElfW(Word *)) dyn[i].d_un.d_ptr;
             const uint32_t nbuckets = dt_gnu_hash[0];
             const uint32_t bloom_size = dt_gnu_hash[2];
-            const uint64_t* bloom = (void*) &dt_gnu_hash[4];
-            const uint32_t* buckets = (void*) &bloom[bloom_size];
+            const uint64_t *bloom = (void *) &dt_gnu_hash[4];
+            const uint32_t *buckets = (void *) &bloom[bloom_size];
 
             /* This is good enough to get the size of the dynsym but
              * it won't tell us total number of symbols including the
@@ -298,7 +298,7 @@ static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t
         }
 
         if(dyn[i].d_tag == DT_SYMTAB) {
-            sym = (ElfW(Sym*)) dyn[i].d_un.d_ptr;
+            sym = (ElfW(Sym *)) dyn[i].d_un.d_ptr;
         }
     }
 
@@ -318,7 +318,7 @@ static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t
             continue;
         }
 
-        void *addr = (void *)(load_address + sym->st_value);
+        void *addr = (void *) (load_address + sym->st_value);
         text_size += sym->st_size;
 
         if(addr < text_start || text_start == 0) {
@@ -373,7 +373,7 @@ int32_t protect_code() {
 
 /* Undoes the execute only protections put in place by protect_code() */
 int32_t unprotect_code() {
-    return dl_iterate_phdr(map_guard_protect_code_callback, (void *) (PROT_READ|PROT_EXEC));
+    return dl_iterate_phdr(map_guard_protect_code_callback, (void *) (PROT_READ | PROT_EXEC));
 }
 
 /* Uses the dynamic linker dl_iterate_phdr API to locate all
@@ -385,7 +385,7 @@ int32_t protect_segments() {
 
 /* Undoes the execute only protections put in place by protect_segments() */
 int32_t unprotect_segments() {
-    return dl_iterate_phdr(map_guard_protect_segments_callback, (void *) (PROT_READ|PROT_EXEC));
+    return dl_iterate_phdr(map_guard_protect_segments_callback, (void *) (PROT_READ | PROT_EXEC));
 }
 
 /* If we are in a process with code that utilizes MPK API
