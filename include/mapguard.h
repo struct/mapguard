@@ -1,5 +1,5 @@
 /* Reference implementation of map guard
- * Copyright Chris Rohlf - 2020 */
+ * Copyright Chris Rohlf - 2021 */
 
 #define _GNU_SOURCE
 #include <assert.h>
@@ -24,6 +24,11 @@
 #define ERROR -1
 #define GUARD_PAGE_COUNT 2
 
+#define SYSLOG(msg, ...)                       \
+    if(g_mapguard_policy.enable_syslog) {      \
+        syslog(LOG_ALERT, msg, ##__VA_ARGS__); \
+    }
+
 /* If you want to log security policy violations then
  * modifying this macro is the easiest way to do it */
 #if DEBUG
@@ -38,12 +43,6 @@
 #define LOG_ERROR(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
 #define LOG(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
 #endif
-
-#define SYSLOG(msg, ...)                       \
-    if(g_mapguard_policy.enable_syslog) {      \
-        syslog(LOG_ALERT, msg, ##__VA_ARGS__); \
-    }                                          \
-    LOG(msg, ##__VA_ARGS__)
 
 /* MapGuard Environment variable configurations */
 

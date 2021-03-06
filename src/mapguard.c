@@ -1,5 +1,5 @@
 /* Reference implementation of map guard
- * Copyright Chris Rohlf - 2020 */
+ * Copyright Chris Rohlf - 2021 */
 
 #include "mapguard.h"
 
@@ -293,7 +293,6 @@ int munmap(void *addr, size_t length) {
                 LOG("Deleting cache entry for %p", mce->start);
                 vector_delete_at(&g_map_cache_vector, mce->cache_index);
                 free(mce);
-                mce = NULL;
             }
         }
     }

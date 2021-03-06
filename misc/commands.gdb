@@ -1,4 +1,3 @@
-file build/mapguard_test
 set env MG_PANIC_ON_VIOLATION=0
 set env MG_USE_MAPPING_CACHE=1
 set env MG_DISALLOW_RWX=1

@@ -10,7 +10,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "../mapguard.h"
+#include "mapguard.h"
 
 #define STATIC_ADDRESS 0x7f3bffaaa000
 #define ALLOC_SIZE 4096 * 8
