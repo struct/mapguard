@@ -12,15 +12,15 @@ The library requires hooking `mmap`, `munmap`, `mprotect`, and `mremap`. Enablin
 
 The following functionality can be enabled/disabled via environment variables:
 
-`MG_DISALLOW_RWX` - Disallows PROT_READ, PROT_WRITE, PROT_EXEC mappings
-`MG_DISALLOW_TRANSITION_TO_X` - Disallows RW allocations to ever transition to PROT_EXEC
-`MG_DISALLOW_TRANSITION_FROM_X` - Disallows R-X allocations to ever transition to PROT_WRITE
-`MG_DISALLOW_STATIC_ADDRESS` - Disallows page allocations at a set address (enforces ASLR)
-`MG_ENABLE_GUARD_PAGES` - Force guard page allocations on either side of all mappings
-`MG_PANIC_ON_VIOLATION` - Instructs Map Guard to abort the process when these policies are violated
-`MG_POISON_ON_ALLOCATION` - Fill all allocated pages with a byte pattern 0xde
-`MG_USE_MAPPING_CACHE` - Enable the mapping cache, required for guard pages and other protections
-`MG_ENABLE_SYSLOG` - Enable logging of policy violations to syslog
+* `MG_DISALLOW_RWX` - Disallows PROT_READ, PROT_WRITE, PROT_EXEC mappings
+* `MG_DISALLOW_TRANSITION_TO_X` - Disallows RW allocations to ever transition to PROT_EXEC
+* `MG_DISALLOW_TRANSITION_FROM_X` - Disallows R-X allocations to ever transition to PROT_WRITE
+* `MG_DISALLOW_STATIC_ADDRESS` - Disallows page allocations at a set address (enforces ASLR)
+* `MG_ENABLE_GUARD_PAGES` - Force guard page allocations on either side of all mappings
+* `MG_PANIC_ON_VIOLATION` - Instructs Map Guard to abort the process when these policies are violated
+* `MG_POISON_ON_ALLOCATION` - Fill all allocated pages with a byte pattern 0xde
+* `MG_USE_MAPPING_CACHE` - Enable the mapping cache, required for guard pages and other protections
+* `MG_ENABLE_SYSLOG` - Enable logging of policy violations to syslog
 
 ## MPK API
 
