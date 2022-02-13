@@ -1,11 +1,11 @@
 ## Map Guard Makefile
 
 CC = clang
-CFLAGS = -Wall
+CFLAGS = -Wall -std=c11
 MPK = -DMPK_SUPPORT=1
 EXE_CFLAGS = -fPIE -pie
 DEBUG_FLAGS = -DDEBUG -ggdb
-LIBRARY = -fPIC -shared -ldl
+LIBRARY = -fPIC -shared -ldl -lpthread
 ASAN = -fsanitize=address
 TEST_FLAGS = -DVECTOR_UNIT_TEST=1
 VECTOR_SRC = vector_t/vector.c

@@ -120,6 +120,6 @@ LD_PRELOAD=build/mapguard.so ./your_program
 
 ## Who
 
-Copyright Chris Rohlf - 2020
+Copyright Chris Rohlf - 2022
 
 chris.rohlf@gmail.com

@@ -123,7 +123,12 @@ int32_t protect_mapping(void *addr) {
         /* We aren't currently tracking these pages, so lets
          * start doing that. We don't allocate guard pages
          * because no r/w operations will take place here */
-        mce = new_mapguard_cache_entry();
+        mce = find_free_mce();
+
+        /* This should never happen */
+        if(mce == NULL) {
+            abort();
+        }
         mce->start = get_base_page(addr);
         /* We only know a single address, so we default to 1 page */
         mce->size = g_page_size;
