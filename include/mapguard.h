@@ -1,6 +1,7 @@
 /* Reference implementation of map guard
  * Copyright Chris Rohlf - 2022 */
 
+#pragma once
 #define _GNU_SOURCE
 #include <assert.h>
 #include <dlfcn.h>
@@ -113,8 +114,7 @@ typedef struct {
     uint8_t enable_syslog;
 } mapguard_policy_t;
 
-/* Global policy configuration object */
-mapguard_policy_t g_mapguard_policy;
+extern size_t g_page_size;
 
 typedef struct {
     void *next; /* Points to the page of [mapguard_cache_metadata_t ... mapguard_cache_entry_t ... n] */
@@ -141,10 +141,6 @@ typedef struct {
 #endif
 } mapguard_cache_entry_t;
 
-vector_t g_map_cache_vector;
-
-size_t g_page_size;
-
 inline __attribute__((always_inline)) void *get_base_page(void *addr) {
     return (void *) ((uintptr_t) addr & ~(g_page_size - 1));
 }
@@ -170,15 +166,4 @@ int32_t unprotect_segments();
 int32_t protect_code();
 int32_t unprotect_code();
 uint64_t rand_uint64(void);
-int (*g_real_pkey_mprotect)(void *addr, size_t len, int prot, int pkey);
-int (*g_real_pkey_alloc)(unsigned int flags, unsigned int access_rights);
-int (*g_real_pkey_free)(int pkey);
-int (*g_real_pkey_set)(int pkey, unsigned int access_rights);
-int (*g_real_pkey_get)(int pkey);
 #endif
-
-/* Hooked libc functions */
-void *(*g_real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
-int (*g_real_munmap)(void *addr, size_t length);
-int (*g_real_mprotect)(void *addr, size_t len, int prot);
-void *(*g_real_mremap)(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...);

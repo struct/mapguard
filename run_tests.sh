@@ -16,6 +16,14 @@ tests=("mapguard_test" "mapguard_test_with_mpk" "mapguard_thread_test")
 failure=0
 succeeded=0
 
+mmap_min_addr=`sysctl vm.mmap_min_addr |cut -f3 -d" "`
+
+if [ $mmap_min_addr -ne "0" ]
+then
+	echo "vm.mmap_min_addr should be 0 for some of the tests to work"
+	exit
+fi
+
 for t in "${tests[@]}"; do
     echo -n "Running $t test"
     echo -n "Running $t test" >> test_output.txt 2>&1
@@ -43,4 +51,3 @@ unset MG_DISALLOW_X_TRANSITION
 unset MG_POISON_ON_ALLOCATION
 unset MG_ENABLE_SYSLOG
 unset LD_LIBRARY_PATH
-unset LD_PRELOAD

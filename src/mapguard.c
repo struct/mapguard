@@ -7,6 +7,25 @@ pthread_mutex_t _mg_mutex;
 
 mapguard_cache_metadata_t *mce_head;
 
+/* Globals */
+vector_t g_map_cache_vector;
+size_t g_page_size;
+
+/* Global policy configuration object */
+mapguard_policy_t g_mapguard_policy;
+
+/* Pointers to hooked libc functions */
+void *(*g_real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+int (*g_real_munmap)(void *addr, size_t length);
+int (*g_real_mprotect)(void *addr, size_t len, int prot);
+void *(*g_real_mremap)(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...);
+
+extern int (*g_real_pkey_mprotect)(void *addr, size_t len, int prot, int pkey);
+extern int (*g_real_pkey_alloc)(unsigned int flags, unsigned int access_rights);
+extern int (*g_real_pkey_free)(int pkey);
+extern int (*g_real_pkey_set)(int pkey, unsigned int access_rights);
+extern int (*g_real_pkey_get)(int pkey);
+
 __attribute__((constructor)) void mapguard_ctor() {
     pthread_mutex_init(&_mg_mutex, NULL);
 
@@ -88,6 +107,11 @@ void unmap_bottom_guard_page(mapguard_cache_entry_t *mce) {
 }
 
 void unmap_guard_pages(mapguard_cache_entry_t *mce) {
+    if(NULL == mce) {
+        LOG("This should never happen: mce == NULL");
+        abort();
+    }
+
     unmap_bottom_guard_page(mce);
     unmap_top_guard_page(mce);
 }
@@ -136,7 +160,7 @@ mapguard_cache_entry_t *find_free_mce() {
 
     /* We need a new page */
     while(current != NULL) {
-        if(current->next == NULL){
+        if(current->next == NULL) {
             current->next = new_mce_page();
             mce = (mapguard_cache_entry_t *) (current->next + sizeof(mapguard_cache_metadata_t));
             return mce;
@@ -269,6 +293,9 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
             mce->guarded_b = true;
             mce->guarded_t = true;
         }
+    } else {
+        LOG("\nSet env var: MG_USE_MAPPING_CACHE=1\n");
+        abort();
     }
 
     /* Set all bytes in the allocation if configured and pages are writeable */
@@ -352,6 +379,7 @@ int munmap(void *addr, size_t length) {
                 }
 
                 unmap_guard_pages(mce);
+
                 LOG("Deleting cache entry for %p", mce->start);
                 vector_delete_at(&g_map_cache_vector, mce->cache_index);
                 UNLOCK_MG();
