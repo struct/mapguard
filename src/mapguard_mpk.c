@@ -5,6 +5,21 @@
 
 #if MPK_SUPPORT
 
+extern mapguard_policy_t g_mapguard_policy;
+extern vector_t g_map_cache_vector;
+extern size_t g_page_size;
+
+extern void *(*g_real_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+extern int (*g_real_munmap)(void *addr, size_t length);
+extern int (*g_real_mprotect)(void *addr, size_t len, int prot);
+extern void *(*g_real_mremap)(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...);
+
+int (*g_real_pkey_mprotect)(void *addr, size_t len, int prot, int pkey);
+int (*g_real_pkey_alloc)(unsigned int flags, unsigned int access_rights);
+int (*g_real_pkey_free)(int pkey);
+int (*g_real_pkey_set)(int pkey, unsigned int access_rights);
+int (*g_real_pkey_get)(int pkey);
+
 /* Memory Protection Keys is a feature on Intel x64 Skylake and newer processors
  * that allows a program to set permission bits on a per-page mapping. The advantage
  * of MPK over mprotect() is that its a lot faster. This feature of MapGuard
@@ -219,7 +234,7 @@ static int32_t map_guard_protect_segments_callback(struct dl_phdr_info *info, si
 
     for(uint32_t i = 0; i < info->dlpi_phnum; i++) {
         if(info->dlpi_phdr[i].p_type == PT_LOAD && (info->dlpi_phdr[i].p_flags & PF_X)) {
-            ret |= g_real_mprotect(load_address, info->dlpi_phdr[i].p_memsz, (int32_t) data);
+            ret |= g_real_mprotect(load_address, info->dlpi_phdr[i].p_memsz, *((int32_t *) data));
         }
     }
 
@@ -353,7 +368,7 @@ static int32_t map_guard_protect_code_callback(struct dl_phdr_info *info, size_t
             LOG("An estimated %x bytes of this segment is still readable", unprotected_exec);
 
             LOG("mprotect(%p, %ld)", text_start, text_size);
-            int ret = g_real_mprotect(text_start, text_size, (int32_t) data);
+            int ret = g_real_mprotect(text_start, text_size, *((int32_t *) data));
 
             /* Log the error but this is best effort so continue */
             if(ret != 0) {

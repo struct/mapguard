@@ -16,13 +16,17 @@ void *secret_data;
  * a page allocated for the heap is going to inevitably
  * result in an unintended crash */
 void *worker_thread_enter(void *d) {
+#if MPK_SUPPORT
     protect_mapping(secret_data);
+#endif
 
     /* This would result in a SEGV_PKUERR */
     /*uint8_t *v = &secret_data[2];
     LOG("In worker thread %x", *v);*/
 
+#if MPK_SUPPORT
     unprotect_mapping(secret_data, PROT_READ | PROT_WRITE);
+#endif
 
     return OK;
 }

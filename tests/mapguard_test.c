@@ -234,7 +234,7 @@ int main(int argc, char *argv[]) {
     check_map_partial_unmap_top_test();
 
 #if MPK_SUPPORT
-    //check_mpk_xom_test();
+    // check_mpk_xom_test();
     check_protect_mapping_test();
     protect_code();
     unprotect_code();
