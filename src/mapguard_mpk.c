@@ -1,5 +1,4 @@
-/* Reference implementation of map guard
- * Copyright Chris Rohlf - 2020 */
+/* MapGuard - Copyright Chris Rohlf - 2025 */
 
 #include "mapguard.h"
 

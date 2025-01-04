@@ -1,6 +1,4 @@
-/* Reference implementation of map guard
- * Copyright Chris Rohlf - 2022 */
-
+/* MapGuard - Copyright Chris Rohlf - 2025 */
 #pragma once
 #define _GNU_SOURCE
 #include <assert.h>
@@ -13,12 +11,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 
-//#if THREAD_SUPPORT
+#if THREAD_SUPPORT
 #include <pthread.h>
-//#endif
+#endif
 
 #include <syslog.h>
 #include <unistd.h>
@@ -53,16 +52,21 @@
 #define LOG(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
 #endif
 
+#define LOG_AND_ABORT(msg, ...)                                                                                 \
+    fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__);  \
+    fflush(stderr);                                                                                             \
+    abort();
+
 /* MapGuard Environment variable configurations */
 
-/* Disallows PROT_READ, PROT_WRITE, PROT_EXEC mappings */
-#define MG_DISALLOW_RWX "MG_DISALLOW_RWX"
-/* Disallows RW allocations to ever transition to PROT_EXEC */
-#define MG_DISALLOW_TRANSITION_TO_X "MG_DISALLOW_TRANSITION_TO_X"
-/* Disallows X allocations to ever transition to PROT_WRITE */
-#define MG_DISALLOW_TRANSITION_FROM_X "MG_DISALLOW_TRANSITION_FROM_X"
-/* Disallows page allocations at a set address (enforces ASLR) */
-#define MG_DISALLOW_STATIC_ADDRESS "MG_DISALLOW_STATIC_ADDRESS"
+/* Prevent PROT_READ, PROT_WRITE, PROT_EXEC mappings */
+#define MG_PREVENT_RWX "MG_PREVENT_RWX"
+/* Prevent RW- allocations to ever transition to PROT_EXEC */
+#define MG_PREVENT_TRANSITION_TO_X "MG_PREVENT_TRANSITION_TO_X"
+/* Prevent R-X allocations to ever transition to PROT_WRITE */
+#define MG_PREVENT_TRANSITION_FROM_X "MG_PREVENT_TRANSITION_FROM_X"
+/* Prevent page allocations at a set address (enforces ASLR) */
+#define MG_PREVENT_STATIC_ADDRESS "MG_PREVENT_STATIC_ADDRESS"
 /* Force top and bottom guard page allocations */
 #define MG_ENABLE_GUARD_PAGES "MG_ENABLE_GUARD_PAGES"
 /* Abort the process when security policies are violated */
@@ -83,8 +87,7 @@
     if(g_mapguard_policy.panic_on_violation) { \
         abort();                               \
     }
-
-#define ROUND_UP_PAGE(N) ((((N) + (g_page_size) -1) / (g_page_size)) * (g_page_size))
+#define ROUND_UP_PAGE(N) ((N + g_page_size) & ~g_page_size)
 #define ROUND_DOWN_PAGE(N) (ROUND_UP_PAGE(N) - g_page_size)
 
 extern pthread_mutex_t _mg_mutex;
@@ -103,10 +106,10 @@ extern pthread_mutex_t _mg_mutex;
 #define MG_POISON_BYTE 0xde
 
 typedef struct {
-    uint8_t disallow_rwx;
-    uint8_t disallow_transition_to_x;
-    uint8_t disallow_transition_from_x;
-    uint8_t disallow_static_address;
+    uint8_t prevent_rwx;
+    uint8_t prevent_transition_to_x;
+    uint8_t prevent_transition_from_x;
+    uint8_t prevent_static_address;
     uint8_t enable_guard_pages;
     uint8_t panic_on_violation;
     uint8_t poison_on_allocation;
@@ -126,8 +129,8 @@ typedef struct {
 /* TODO - This structure is not thread safe */
 typedef struct {
     void *start;
-    uint8_t idx; /* Each page is 4096 bytes, the first 32 bytes is meta data
-                  * the remaining is 32 bytes of mapguard_cache_entry_t */
+    /* Tracks which entry this is, uint16_t because pages could be 16k */
+    uint16_t idx;
     size_t size;
     bool guarded_b;
     bool guarded_t;
@@ -154,7 +157,7 @@ int32_t env_to_int(char *string);
 uint64_t rand_uint64(void);
 void mark_guard_page(void *p);
 void *allocate_guard_page(void *p);
-void protect_guard_page(void *p);
+void make_guard_page(void *p);
 
 #if MPK_SUPPORT
 void *memcpy_xom(size_t allocation_size, void *src, size_t src_size);

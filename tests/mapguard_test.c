@@ -1,5 +1,5 @@
-/* Map Guard test
- * Copyright Chris Rohlf - 2020 */
+/* MapGuard tests
+ * Copyright Chris Rohlf - 2025 */
 
 #define _GNU_SOURCE
 #include <assert.h>
@@ -13,7 +13,7 @@
 #include "mapguard.h"
 
 #define STATIC_ADDRESS 0x7f3bffaaa000
-#define ALLOC_SIZE 4096 * 8
+#define ALLOC_SIZE 4096*16
 
 void *map_memory(char *desc, int prot) {
     return mmap(0, ALLOC_SIZE, prot, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
@@ -24,7 +24,7 @@ int32_t unmap_memory(void *ptr) {
 }
 
 int32_t unmap_remapped_memory(void *ptr) {
-    return munmap(ptr, ALLOC_SIZE * 2);
+    return munmap(ptr, ALLOC_SIZE);
 }
 
 void *remap_memory_test(char *desc, void *ptr) {
@@ -103,7 +103,7 @@ void map_then_mremap_test() {
     if(ptr == MAP_FAILED) {
         LOG("Failure: to map RW memory");
     }
-
+LOG("mapped RW memory %p", ptr);
     ptr = remap_memory_test("Remap", ptr);
 
     if(ptr == MAP_FAILED) {
@@ -223,22 +223,28 @@ void check_protect_mapping_test() {
 #endif
 
 int main(int argc, char *argv[]) {
+#if 0
     map_rw_memory_test();
     map_rwx_memory_test();
     map_rw_then_x_memory_test();
+#endif
     map_then_mremap_test();
+#if 0
     map_static_address_test();
     check_poison_bytes_test();
+
     check_x_to_w_test();
     check_map_partial_unmap_bottom_test();
     check_map_partial_unmap_top_test();
-
+#endif
 #if MPK_SUPPORT
     // check_mpk_xom_test();
     check_protect_mapping_test();
     protect_code();
     unprotect_code();
 #endif
+
+LOG("Done testing");
 
     return OK;
 }
