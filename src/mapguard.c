@@ -19,12 +19,13 @@ int (*g_real_munmap)(void *addr, size_t length);
 int (*g_real_mprotect)(void *addr, size_t len, int prot);
 void *(*g_real_mremap)(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...);
 
+#if MPK_SUPPORT
 extern int (*g_real_pkey_mprotect)(void *addr, size_t len, int prot, int pkey);
 extern int (*g_real_pkey_alloc)(unsigned int flags, unsigned int access_rights);
 extern int (*g_real_pkey_free)(int pkey);
 extern int (*g_real_pkey_set)(int pkey, unsigned int access_rights);
 extern int (*g_real_pkey_get)(int pkey);
-
+#endif
 __attribute__((constructor)) void mapguard_ctor() {
 #if THREAD_SUPPORT
     pthread_mutex_init(&_mg_mutex, NULL);
@@ -300,16 +301,19 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
             abort();
         }
 
-        mce->start = map_ptr + g_page_size;
+        /* Only offset by guard page if guard pages are enabled */
+        if(g_mapguard_policy.enable_guard_pages) {
+            mce->start = map_ptr + g_page_size;
+            mce->guarded_b = true;
+            mce->guarded_t = true;
+        } else {
+            mce->start = map_ptr;
+        }
+
         mce->size = rounded_length;
         mce->immutable_prot |= prot;
         mce->current_prot = prot;
         mce->cache_index = vector_push(&g_map_cache_vector, mce);
-
-        if(g_mapguard_policy.enable_guard_pages) {
-            mce->guarded_b = true;
-            mce->guarded_t = true;
-        }
 
         /* Set all bytes in the allocation if configured and pages are writeable */
         if(g_mapguard_policy.poison_on_allocation && (prot & PROT_WRITE)) {

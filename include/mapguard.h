@@ -87,8 +87,16 @@
     if(g_mapguard_policy.panic_on_violation) { \
         abort();                               \
     }
-#define ROUND_UP_PAGE(N) ((N + g_page_size) & ~g_page_size)
-#define ROUND_DOWN_PAGE(N) (ROUND_UP_PAGE(N) - g_page_size)
+
+#define ROUND_UP_PAGE(N) (((N) + g_page_size - 1) & ~(g_page_size - 1))
+#define ROUND_DOWN_PAGE(N) ((N) & ~(g_page_size - 1))
+
+/* Branch prediction hints for hot paths */
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
+/* Skip cache for very large allocations (more than this many pages) */
+#define LARGE_ALLOCATION_THRESHOLD (16 * g_page_size)
 
 extern pthread_mutex_t _mg_mutex;
 
