@@ -6,8 +6,8 @@ pthread_mutex_t _mg_mutex;
 
 mapguard_cache_metadata_t *mce_head;
 
-#define HASH_TABLE_SIZE 16384  /* Power of 2 for fast modulo */
-#define HASH_ADDR(addr) (((uintptr_t)(addr) >> 12) & (HASH_TABLE_SIZE - 1))
+#define HASH_TABLE_SIZE 16384 /* Power of 2 for fast modulo */
+#define HASH_ADDR(addr) (((uintptr_t) (addr) >> 12) & (HASH_TABLE_SIZE - 1))
 
 mapguard_cache_entry_t *g_hash_table[HASH_TABLE_SIZE];
 
@@ -149,7 +149,7 @@ mapguard_cache_entry_t *find_free_mce() {
 
     while(current) {
         if(current->free) {
-            mapguard_cache_entry_t *entries = (mapguard_cache_entry_t *) ((uint8_t *)current + sizeof(mapguard_cache_metadata_t));
+            mapguard_cache_entry_t *entries = (mapguard_cache_entry_t *) ((uint8_t *) current + sizeof(mapguard_cache_metadata_t));
 
             for(uint32_t i = 0; i < current->total; i++) {
                 mapguard_cache_entry_t *candidate = entries + i;
@@ -176,7 +176,7 @@ mapguard_cache_entry_t *find_free_mce() {
     }
 
     new_page->free--;
-    return (mapguard_cache_entry_t *) ((uint8_t *)new_page + sizeof(mapguard_cache_metadata_t));
+    return (mapguard_cache_entry_t *) ((uint8_t *) new_page + sizeof(mapguard_cache_metadata_t));
 }
 
 __attribute__((destructor)) void mapguard_dtor() {
@@ -225,12 +225,12 @@ int32_t env_to_int(char *string) {
         return 0;
     }
 
-    return (int32_t)val;
+    return (int32_t) val;
 }
 
 mapguard_cache_entry_t *get_cache_entry(void *addr) {
     /* Round down to page boundary for initial lookup */
-    void *page_addr = (void *)ROUND_DOWN_PAGE((uintptr_t)addr);
+    void *page_addr = (void *) ROUND_DOWN_PAGE((uintptr_t) addr);
     uint32_t bucket = HASH_ADDR(page_addr);
     mapguard_cache_entry_t *mce = g_hash_table[bucket];
 
@@ -437,7 +437,7 @@ int munmap(void *addr, size_t length) {
 
             cache_entry_remove(mce);
 
-            mapguard_cache_metadata_t *metadata = (mapguard_cache_metadata_t *) ROUND_DOWN_PAGE((uintptr_t)mce);
+            mapguard_cache_metadata_t *metadata = (mapguard_cache_metadata_t *) ROUND_DOWN_PAGE((uintptr_t) mce);
             metadata->free++;
 
             memset(mce, 0, sizeof(mapguard_cache_entry_t));
@@ -592,7 +592,7 @@ int munmap(void *addr, size_t length) {
 
                     if(ret != 0) {
                         memset(upper_mce, 0, sizeof(mapguard_cache_entry_t));
-                        mapguard_cache_metadata_t *metadata = (mapguard_cache_metadata_t *) ROUND_DOWN_PAGE((uintptr_t)upper_mce);
+                        mapguard_cache_metadata_t *metadata = (mapguard_cache_metadata_t *) ROUND_DOWN_PAGE((uintptr_t) upper_mce);
                         metadata->free++;
                         UNLOCK_MG();
                         return ret;
@@ -609,7 +609,7 @@ int munmap(void *addr, size_t length) {
 
                 if(ret != 0) {
                     memset(upper_mce, 0, sizeof(mapguard_cache_entry_t));
-                    mapguard_cache_metadata_t *metadata = (mapguard_cache_metadata_t *) ROUND_DOWN_PAGE((uintptr_t)upper_mce);
+                    mapguard_cache_metadata_t *metadata = (mapguard_cache_metadata_t *) ROUND_DOWN_PAGE((uintptr_t) upper_mce);
                     metadata->free++;
                     UNLOCK_MG();
                     return ret;
@@ -636,7 +636,7 @@ int munmap(void *addr, size_t length) {
 
         /* Unknown partial unmap case */
         LOG_AND_ABORT("Unknown partial munmap case: addr=%p, length=%zu, mce->start=%p, mce->size=%zu",
-            addr, length, mce->start, mce->size);
+                      addr, length, mce->start, mce->size);
     }
 
     UNLOCK_MG();
@@ -717,7 +717,7 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
             MAYBE_PANIC();
             errno = EINVAL;
             UNLOCK_MG();
-            return MAP_FAILED;  /* FIX: Return MAP_FAILED instead of NULL */
+            return MAP_FAILED; /* FIX: Return MAP_FAILED instead of NULL */
         }
     }
 
@@ -763,7 +763,7 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
 
             if(ptr != MAP_FAILED) {
                 /* FIX: Verify we actually got the address we wanted */
-                if (ptr == expected_bottom) {
+                if(ptr == expected_bottom) {
                     mce->guarded_b = true;
                 } else {
                     g_real_munmap(ptr, g_page_size);
@@ -775,7 +775,7 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
 
             if(ptr != MAP_FAILED) {
                 /* FIX: Verify we actually got the address we wanted */
-                if (ptr == expected_top) {
+                if(ptr == expected_top) {
                     mce->guarded_t = true;
                 } else {
                     g_real_munmap(ptr, g_page_size);
@@ -784,6 +784,6 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
         }
     }
 
-    UNLOCK_MG();  /* FIX: Add missing unlock before return */
+    UNLOCK_MG(); /* FIX: Add missing unlock before return */
     return map_ptr;
 }

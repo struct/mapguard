@@ -68,7 +68,7 @@ void check_x_to_w_test() {
         LOG("Failure: to map R-X memory");
     }
 
-    int32_t ret = mprotect(ptr, page_size  * 16, PROT_READ | PROT_WRITE);
+    int32_t ret = mprotect(ptr, page_size * 16, PROT_READ | PROT_WRITE);
 
     if(ret != ERROR) {
         LOG("Failure: allowed mprotect R-X to RW-");
@@ -86,7 +86,7 @@ void map_rw_then_x_memory_test() {
         LOG("Failure: to map RW memory");
     }
 
-    int32_t ret = mprotect(ptr, page_size  * 16, PROT_READ | PROT_WRITE | PROT_EXEC);
+    int32_t ret = mprotect(ptr, page_size * 16, PROT_READ | PROT_WRITE | PROT_EXEC);
 
     if(ret != ERROR) {
         LOG("Failure: allowed mprotect of RWX");
@@ -116,7 +116,7 @@ void map_then_mremap_test() {
 }
 
 void map_static_address_test() {
-    uint8_t *ptr = mmap((void *) STATIC_ADDRESS, page_size  * 16, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    uint8_t *ptr = mmap((void *) STATIC_ADDRESS, page_size * 16, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
     if(ptr != MAP_FAILED) {
         LOG("Failure: mmapped memory at static address @ %lx", STATIC_ADDRESS);
@@ -144,7 +144,7 @@ void check_poison_bytes_test() {
 }
 
 void unmap_partial_rw_memory_test() {
-    void *ptr = mmap(0, page_size  * 3, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    void *ptr = mmap(0, page_size * 3, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
     if(ptr != MAP_FAILED) {
         LOG("Success: mmapped memory @ %p", ptr);
@@ -152,7 +152,7 @@ void unmap_partial_rw_memory_test() {
         LOG("Failure: to map memory");
     }
 
-    int ret = munmap(ptr + page_size , page_size );
+    int ret = munmap(ptr + page_size, page_size);
 
     if(ret != 0) {
         LOG("Failure: to unmap bottom page");
@@ -160,8 +160,8 @@ void unmap_partial_rw_memory_test() {
         LOG("Success: unmapped bottom page");
     }
 
-    munmap(ptr, page_size );
-    munmap(ptr + (page_size  * 2), 4096);
+    munmap(ptr, page_size);
+    munmap(ptr + (page_size * 2), 4096);
 }
 
 void check_map_partial_unmap_bottom_test() {
@@ -411,15 +411,15 @@ void check_multiple_partial_unmaps_test() {
     LOG("  Step 2: Unmapped 4 pages from middle, created split");
 
     /* Clean up remaining regions */
-    munmap(ptr + (page_size * 3), page_size * 5);   /* Lower region after split */
-    munmap(ptr + (page_size * 12), page_size * 8);  /* Upper region after split */
-    
+    munmap(ptr + (page_size * 3), page_size * 5);  /* Lower region after split */
+    munmap(ptr + (page_size * 12), page_size * 8); /* Upper region after split */
+
     LOG("Success: completed multiple partial unmaps");
 }
 
 int main(int argc, char *argv[]) {
-    page_size  = sysconf(_SC_PAGESIZE);
-    alloc_size = page_size  * 16;
+    page_size = sysconf(_SC_PAGESIZE);
+    alloc_size = page_size * 16;
 
     for(int i = 0; i < 16; i++) {
         map_rw_memory_test();
@@ -441,7 +441,7 @@ int main(int argc, char *argv[]) {
         check_unmap_five_pages_middle_test();
         check_multiple_partial_unmaps_test();
     }
-    
+
     LOG("Done testing");
     return OK;
 }

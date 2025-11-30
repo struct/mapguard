@@ -6,12 +6,12 @@
 #include <errno.h>
 #include <link.h>
 #include <linux/random.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
 
@@ -41,9 +41,9 @@
 #define LOG(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
 #endif
 
-#define LOG_AND_ABORT(msg, ...)                                                                                 \
-    fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__);  \
-    fflush(stderr);                                                                                             \
+#define LOG_AND_ABORT(msg, ...)                                                                                \
+    fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__); \
+    fflush(stderr);                                                                                            \
     abort();
 
 #define SYSLOG(msg, ...)                       \
@@ -135,7 +135,7 @@ typedef struct mapguard_cache_entry {
     bool guarded_t;
     int32_t immutable_prot;
     int32_t current_prot;
-    struct mapguard_cache_entry *hash_next;  /* For hash table chaining */
+    struct mapguard_cache_entry *hash_next; /* For hash table chaining */
 } mapguard_cache_entry_t;
 
 mapguard_cache_metadata_t *new_mce_page();

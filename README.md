@@ -28,8 +28,13 @@ The following functionality can be enabled/disabled via environment variables:
 
 ## Compiling
 
-`make library`
-`make tests`
+`make library` - Compiles the library
+
+`make tests` - Compiles a debug version of the library
+
+`make perf_tests` - Compiles the performance tests
+
+`make format` - Run clang format on the code base
 
 Now run your own program with the library:
 
@@ -117,6 +122,10 @@ large_allocations             1246041     1215745     1167713       10281       
 partial_munmap                 755382      731707      691045      177332        76.5%
 
 Raw CSV files saved in /tmp/*_perf.csv
+
+# ./run_fuzz_tests
+...
+(see if anything crashes!)
 
 ```
 
