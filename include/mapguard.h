@@ -22,20 +22,9 @@
 #include <syslog.h>
 #include <unistd.h>
 
-#if MPK_SUPPORT
-#include <elf.h>
-#endif
-
-#include "../vector_t/vector.h"
-
 #define OK 0
 #define ERROR -1
 #define GUARD_PAGE_COUNT 2
-
-#define SYSLOG(msg, ...)                       \
-    if(g_mapguard_policy.enable_syslog) {      \
-        syslog(LOG_ALERT, msg, ##__VA_ARGS__); \
-    }
 
 /* If you want to log security policy violations then
  * modifying this macro is the easiest way to do it */
@@ -56,6 +45,11 @@
     fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__);  \
     fflush(stderr);                                                                                             \
     abort();
+
+#define SYSLOG(msg, ...)                       \
+    if(g_mapguard_policy.enable_syslog) {      \
+        syslog(LOG_ALERT, msg, ##__VA_ARGS__); \
+    }
 
 /* MapGuard Environment variable configurations */
 
@@ -95,9 +89,6 @@
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-/* Skip cache for very large allocations (more than this many pages) */
-#define LARGE_ALLOCATION_THRESHOLD (16 * g_page_size)
-
 extern pthread_mutex_t _mg_mutex;
 
 #if THREAD_SUPPORT
@@ -128,14 +119,14 @@ typedef struct {
 extern size_t g_page_size;
 
 typedef struct {
-    void *next; /* Points to the page of [mapguard_cache_metadata_t ... mapguard_cache_entry_t ... n] */
+    void *next; /* Points to the next [mapguard_cache_metadata_t ... mapguard_cache_entry_t ... n] */
     bool full;
     uint32_t total;
     uint32_t free;
 } mapguard_cache_metadata_t;
 
 /* TODO - This structure is not thread safe */
-typedef struct {
+typedef struct mapguard_cache_entry {
     void *start;
     /* Tracks which entry this is, uint16_t because pages could be 16k */
     uint16_t idx;
@@ -144,37 +135,16 @@ typedef struct {
     bool guarded_t;
     int32_t immutable_prot;
     int32_t current_prot;
-    int32_t cache_index;
-#if MPK_SUPPORT
-    int32_t xom_enabled;
-    int32_t pkey_access_rights;
-    int32_t pkey;
-#endif
+    struct mapguard_cache_entry *hash_next;  /* For hash table chaining */
 } mapguard_cache_entry_t;
 
-inline __attribute__((always_inline)) void *get_base_page(void *addr) {
-    return (void *) ((uintptr_t) addr & ~(g_page_size - 1));
-}
-
 mapguard_cache_metadata_t *new_mce_page();
+mapguard_cache_metadata_t *get_mce_metadata_page(mapguard_cache_entry_t *mce);
 mapguard_cache_entry_t *find_free_mce();
 mapguard_cache_entry_t *get_cache_entry(void *addr);
 void *is_mapguard_entry_cached(void *p, void *data);
-void vector_pointer_free(void *p);
 int32_t env_to_int(char *string);
 uint64_t rand_uint64(void);
 void mark_guard_page(void *p);
 void *allocate_guard_page(void *p);
 void make_guard_page(void *p);
-
-#if MPK_SUPPORT
-void *memcpy_xom(size_t allocation_size, void *src, size_t src_size);
-int free_xom(void *addr, size_t length);
-int32_t protect_mapping(void *addr);
-int32_t unprotect_mapping(void *addr, int new_prot);
-int32_t protect_segments();
-int32_t unprotect_segments();
-int32_t protect_code();
-int32_t unprotect_code();
-uint64_t rand_uint64(void);
-#endif

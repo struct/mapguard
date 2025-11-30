@@ -3,7 +3,7 @@
 
 make tests
 
-tests=("mapguard_test" "mapguard_test_with_mpk" "mapguard_thread_test")
+tests=("mapguard_test" "mapguard_thread_test")
 
 export MG_USE_MAPPING_CACHE=1
 

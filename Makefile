@@ -6,16 +6,12 @@ SHELL := /bin/bash
 ## Support for multithreaded programs
 THREADS = -DTHREAD_SUPPORT=1
 
-## Support for Intel MPK
-MPK = -DMPK_SUPPORT=0
-
-CFLAGS = -Wall -std=c11
+CFLAGS = -Wall -std=c11 -O2
 EXE_CFLAGS = -fPIE -pie
 DEBUG_FLAGS = -DDEBUG -ggdb
 LIBRARY = -fPIC -shared -ldl
 ASAN = -fsanitize=address
-TEST_FLAGS = -DVECTOR_UNIT_TEST=1
-VECTOR_SRC = vector_t/vector.c
+TEST_FLAGS =
 SRC = src
 INCLUDE = include
 TEST_SRC = tests
@@ -27,45 +23,30 @@ ifeq ($(THREADS), -DTHREAD_SUPPORT=1)
 CFLAGS += -lpthread $(THREADS)
 endif
 
-ifeq ($(MPK), -MPK_SUPPORT=1)
-CFLAGS += $(MPK)
-endif
-
-all: library library_mpk tests
+all: library tests
 
 ## Build the library
 library: clean
 	@echo "make clean"
 	mkdir -p $(BUILD_DIR)/
-	$(CC) $(CFLAGS) $(LIBRARY) $(SRC)/$(SRC_FILES) -I $(INCLUDE) $(VECTOR_SRC) -o $(BUILD_DIR)/libmapguard.so
+	$(CC) $(CFLAGS) $(LIBRARY) $(SRC)/$(SRC_FILES) -I $(INCLUDE) -o $(BUILD_DIR)/libmapguard.so
 	$(STRIP)
 
 ## Build a debug version of the library
 library_debug: clean
 	@echo "make library_debug"
 	mkdir -p $(BUILD_DIR)/
-	$(CC) $(CFLAGS) $(LIBRARY) $(DEBUG_FLAGS) $(SRC)/$(SRC_FILES) -I $(INCLUDE) $(VECTOR_SRC) -o $(BUILD_DIR)/libmapguard.so
-
-## Build the library with MPK support
-library_mpk: clean
-	@echo "make library_mpk"
-	mkdir -p $(BUILD_DIR)/
-	$(CC) $(CFLAGS) $(LIBRARY) $(MPK) $(SRC)/$(SRC_FILES) -I $(INCLUDE) $(VECTOR_SRC) -o $(BUILD_DIR)/libmapguard_mpk.so
-
-## Build a debug version of the library with MPK support
-library_mpk_debug: clean
-	@echo "make library_mpk_debug"
-	mkdir -p $(BUILD_DIR)/
-	$(CC) $(CFLAGS) $(LIBRARY) $(MPK) $(DEBUG_FLAGS) $(SRC)/$(SRC_FILES) -I $(INCLUDE) $(VECTOR_SRC) -o $(BUILD_DIR)/libmapguard_mpk.so
+	$(CC) $(CFLAGS) $(LIBRARY) $(DEBUG_FLAGS) $(SRC)/$(SRC_FILES) -I $(INCLUDE)  -o $(BUILD_DIR)/libmapguard.so
 
 ## Build the unit tests
-tests: clean library_debug library_mpk_debug
+tests: clean library_debug
 	@echo "make tests"
 	mkdir -p $(BUILD_DIR)/
-	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) $(TEST_SRC)/mapguard_test.c -I $(INCLUDE) $(VECTOR_SRC) -o $(BUILD_DIR)/mapguard_test -L build/ -lmapguard -ldl
-	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) $(MPK) $(TEST_SRC)/mapguard_test.c -I $(INCLUDE) $(VECTOR_SRC) -o $(BUILD_DIR)/mapguard_test_with_mpk -L build/ -lmapguard_mpk -ldl
-	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) $(MPK) $(TEST_SRC)/mapguard_thread_test.c -I $(INCLUDE) $(VECTOR_SRC) -o $(BUILD_DIR)/mapguard_thread_test -L build/ -lmapguard_mpk -lpthread -ldl
-	./run_tests.sh
+	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) $(TEST_SRC)/mapguard_test.c -I $(INCLUDE)  -o $(BUILD_DIR)/mapguard_test -L build/ -ldl
+	$(CC) $(CFLAGS) $(EXE_CFLAGS) $(DEBUG_FLAGS) $(TEST_SRC)/mapguard_thread_test.c -I $(INCLUDE)  -o $(BUILD_DIR)/mapguard_thread_test -L build/ -lpthread -ldl
+
+perf_tests: clean library
+	$(CC) $(CFLAGS) $(EXE_CFLAGS) -o build/mapguard_perf_test tests/mapguard_perf_test.c
 
 format:
 	clang-format $(INCLUDE)/*.* $(SRC)/*.* $(TEST_SRC)/*.* -i

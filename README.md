@@ -2,8 +2,6 @@
 
 MapGuard is a page allocation proxy and cache that aims to mitigate some memory safety exploits by intercepting, modifying, and logging `mmap` based page allocations. It enforces a simple set of allocation security policies configurable via environment variables. It works transparently on open and closed source programs with no source modifications in the target required. It can be used along side any mmap based memory allocator.
 
-It also ships with an API for using Intel MPK extensions if your hardware supports it.
-
 ## Implementation
 
 MapGuard uses the dynamic linker interface via `dlsym` to hook libc functions. When calls to those functions are intercepted MapGuard will inspect their arguments and then consult runtime policies for whether that behavior should be allowed, denied, or logged.
@@ -27,26 +25,6 @@ The following functionality can be enabled/disabled via environment variables:
 * `MG_POISON_ON_ALLOCATION` - Fill all allocated pages with a byte pattern 0xde
 * `MG_USE_MAPPING_CACHE` - Enable the mapping cache, required for guard pages and other protections
 * `MG_ENABLE_SYSLOG` - Enable logging of policy violations to syslog
-
-## MPK API
-
-```
-void *memcpy_xom(size_t allocation_size, void *src, size_t src_size) - Uses mmap to allocate allocation_size bytes of memory, copies src_size instructions from src and marks the memory execute only
-
-int free_xom(void *addr, size_t length) - Free the memory allocated with memcpy_xom()
-
-int32_t protect_mapping(void *addr) - Protects a single page, or range of pages if allocated via MapGuard
-
-int32_t unprotect_mapping(void *addr, int new_prot) - Undoes the protection provided by protect_mapping()
-
-int32_t protect_segments() - Marks all ELF PF_X segments as execute only
-
-int32_t unprotect_segments() - Undoes the protection provided by protect_segments()
-
-int32_t protect_code() - Uses a heuristic to find all .text pages for all loaded ELF objects and marks them execute only
-
-int32_t unprotect_code() - Undoes the protection provided by protect_code()
-```
 
 ## Testing
 
