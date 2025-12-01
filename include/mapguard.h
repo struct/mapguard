@@ -109,14 +109,14 @@ typedef struct {
     uint8_t prevent_transition_to_x;
     uint8_t prevent_transition_from_x;
     uint8_t prevent_static_address;
+    uint8_t prevent_policies_enabled;
     uint8_t enable_guard_pages;
     uint8_t panic_on_violation;
     uint8_t poison_on_allocation;
     uint8_t use_mapping_cache;
+    uint8_t actions_enabled;
     uint8_t enable_syslog;
 } mapguard_policy_t;
-
-extern size_t g_page_size;
 
 typedef struct {
     void *next; /* Points to the next [mapguard_cache_metadata_t ... mapguard_cache_entry_t ... n] */

@@ -12,7 +12,8 @@ mapguard_cache_metadata_t *mce_head;
 mapguard_cache_entry_t *g_hash_table[HASH_TABLE_SIZE];
 
 /* Globals */
-size_t g_page_size;
+static size_t g_page_size;
+static uint32_t g_page_shift;
 
 /* Global policy configuration object */
 mapguard_policy_t g_mapguard_policy;
@@ -40,6 +41,17 @@ __attribute__((constructor)) void mapguard_ctor() {
     ENV_TO_INT(MG_USE_MAPPING_CACHE, g_mapguard_policy.use_mapping_cache);
     ENV_TO_INT(MG_ENABLE_SYSLOG, g_mapguard_policy.enable_syslog);
 
+    /* Allow for fast paths to ignore policies and actions when disabled */
+    g_mapguard_policy.prevent_policies_enabled = g_mapguard_policy.prevent_rwx ||
+                                                 g_mapguard_policy.prevent_transition_to_x ||
+                                                 g_mapguard_policy.prevent_transition_from_x ||
+                                                 g_mapguard_policy.prevent_static_address;
+
+    g_mapguard_policy.actions_enabled = g_mapguard_policy.enable_guard_pages ||
+                                        g_mapguard_policy.panic_on_violation ||
+                                        g_mapguard_policy.poison_on_allocation ||
+                                        g_mapguard_policy.use_mapping_cache;
+
     /* In order for guard pages to work we need MCE */
     if(g_mapguard_policy.enable_guard_pages == 1 && g_mapguard_policy.use_mapping_cache == 0) {
         LOG_AND_ABORT("MG_ENABLE_GUARD_PAGES == 1 but MG_USE_MAPPING_CACHE == 0");
@@ -55,6 +67,8 @@ __attribute__((constructor)) void mapguard_ctor() {
     }
 
     g_page_size = getpagesize();
+    /* Calculate shift amount for fast page alignment (assumes power of 2) */
+    g_page_shift = __builtin_ctzl(g_page_size);
     mce_head = new_mce_page();
     LOG("Allocated mce_head at %p", mce_head);
 }
@@ -245,7 +259,7 @@ mapguard_cache_entry_t *get_cache_entry(void *addr) {
 
     /* Still not found, now backward search for up to 256 pages */
     for(uint32_t i = 1; i < 256; i++) {
-        void *probe_addr = page_addr - (i * g_page_size);
+        void *probe_addr = page_addr - (i << g_page_shift); /* Use shift instead of multiply */
         uint32_t probe_bucket = HASH_ADDR(probe_addr);
 
         if(probe_bucket == bucket) {
@@ -288,7 +302,6 @@ void cache_entry_remove(mapguard_cache_entry_t *mce) {
                 prev->hash_next = current->hash_next;
             }
             mce->hash_next = NULL;
-            /* FIX: Remove free counter management - let caller handle it */
             return;
         }
         prev = current;
@@ -302,61 +315,58 @@ void cache_entry_remove(mapguard_cache_entry_t *mce) {
 void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
     /* We don't intercept file backed mappings */
     if(fd != -1) {
-        void *map_ptr = g_real_mmap(addr, length, prot, flags, fd, offset);
-        return map_ptr;
+        return g_real_mmap(addr, length, prot, flags, fd, offset);
     }
 
-    LOCK_MG();
+    /* Hoist common computations before lock */
+    size_t rounded_length = ROUND_UP_PAGE(length);
+
+    /* Fast path: no policies enabled, no tracking needed */
+    if(g_mapguard_policy.prevent_policies_enabled == 0 && g_mapguard_policy.actions_enabled == 0) {
+        return g_real_mmap(addr, rounded_length, prot, flags, fd, offset);
+    }
 
     /* Prevent RWX mappings */
     if(g_mapguard_policy.prevent_rwx && (prot & PROT_WRITE) && (prot & PROT_EXEC)) {
         LOG("Preventing RWX memory allocation");
         MAYBE_PANIC();
-        UNLOCK_MG();
         return MAP_FAILED;
     }
 
-    /* Prevent mappings at a hardcoded address. This weakens ASLR */
-    if(addr != 0 && g_mapguard_policy.prevent_static_address) {
+    /* Prevent mappings at a hardcoded address as it weakens ASLR */
+    if(g_mapguard_policy.prevent_static_address && addr != 0) {
         LOG("Preventing memory allocation at static address %p", addr);
         MAYBE_PANIC();
-        UNLOCK_MG();
         return MAP_FAILED;
     }
 
-    void *map_ptr = NULL;
-
-    size_t rounded_length = ROUND_UP_PAGE(length);
-
+    /* Perform the actual mmap - branch once on guard pages */
+    void *map_ptr;
     if(g_mapguard_policy.enable_guard_pages) {
-        map_ptr = g_real_mmap(addr, rounded_length + (g_page_size * GUARD_PAGE_COUNT), prot, flags, fd, offset);
-
+        map_ptr = g_real_mmap(addr, rounded_length + (g_page_size << 1), prot, flags, fd, offset);
         if(map_ptr == MAP_FAILED) {
-            UNLOCK_MG();
-            return map_ptr;
+            return MAP_FAILED;
         }
 
         make_guard_page(map_ptr);
-        make_guard_page(map_ptr + g_page_size + length);
+        make_guard_page(map_ptr + g_page_size + rounded_length);
     } else {
         map_ptr = g_real_mmap(addr, rounded_length, prot, flags, fd, offset);
-
         if(map_ptr == MAP_FAILED) {
-            UNLOCK_MG();
-            return map_ptr;
+            return MAP_FAILED;
         }
     }
 
-    /* Cache the start, size and protections of this mapping */
+    /* Handle cache and poisoning together to reduce branches */
     if(g_mapguard_policy.use_mapping_cache) {
+        LOCK_MG();
         mapguard_cache_entry_t *mce = find_free_mce();
 
-        /* This should never happen */
         if(mce == NULL) {
             LOG_AND_ABORT("Failed to find free MCE entry in mmap");
         }
 
-        /* Only offset by guard page if guard pages are enabled */
+        /* Setup MCE based on guard page configuration */
         if(g_mapguard_policy.enable_guard_pages) {
             mce->start = map_ptr + g_page_size;
             mce->guarded_b = true;
@@ -366,44 +376,46 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
         }
 
         mce->size = rounded_length;
-        mce->immutable_prot |= prot;
+        mce->immutable_prot = prot;
         mce->current_prot = prot;
         cache_entry_insert(mce);
 
-        /* Set all bytes in the allocation if configured and pages are writeable */
+        /* Poison if needed and writable */
         if(g_mapguard_policy.poison_on_allocation && (prot & PROT_WRITE)) {
             memset(mce->start, MG_POISON_BYTE, length);
         }
 
         UNLOCK_MG();
         return mce->start;
-    } else {
-        /* Set all bytes in the allocation if configured and pages are writeable */
-        if(g_mapguard_policy.poison_on_allocation && (prot & PROT_WRITE)) {
-            memset(map_ptr, MG_POISON_BYTE, length);
-        }
-
-        UNLOCK_MG();
-        return map_ptr;
     }
+
+    if(g_mapguard_policy.poison_on_allocation && (prot & PROT_WRITE)) {
+        memset(map_ptr, MG_POISON_BYTE, length);
+    }
+
+    return map_ptr;
 }
 
 /* Hook munmap in libc */
 int munmap(void *addr, size_t length) {
-    LOCK_MG();
-
-    mapguard_cache_entry_t *mce = NULL;
-    int32_t ret;
-
+    /* Hoist all validation and computation before any locks or branches */
     if(length == 0) {
-        UNLOCK_MG();
         return EINVAL;
     }
 
     if(((uintptr_t) addr & (g_page_size - 1)) != 0) {
-        UNLOCK_MG();
         return EINVAL;
     }
+
+    size_t rounded_length = ROUND_UP_PAGE(length);
+
+    /* Fast path: if not tracking, just call through */
+    if(!g_mapguard_policy.use_mapping_cache) {
+        return g_real_munmap(addr, rounded_length);
+    }
+
+    mapguard_cache_entry_t *mce = NULL;
+    int32_t ret;
 
     length = ROUND_UP_PAGE(length);
 
@@ -412,11 +424,14 @@ int munmap(void *addr, size_t length) {
      * mce->start changes because that is how the table
      * is indexed */
     if(g_mapguard_policy.use_mapping_cache) {
+        LOCK_MG();
         mce = get_cache_entry(addr);
 
         if(mce == NULL) {
+            UNLOCK_MG();
             LOG_AND_ABORT("No mapguard cache entry found for address %p", addr);
         }
+
         /* Case 1: Handle full unmapping (the most common case) */
         if(mce->start == addr && mce->size == length) {
             if(g_mapguard_policy.enable_guard_pages == true && mce->guarded_b == true) {
@@ -533,6 +548,7 @@ int munmap(void *addr, size_t length) {
             mapguard_cache_entry_t *upper_mce = find_free_mce();
 
             if(upper_mce == NULL) {
+                UNLOCK_MG();
                 LOG_AND_ABORT("Failed to allocate MCE for split mapping");
             }
 
@@ -614,10 +630,6 @@ int munmap(void *addr, size_t length) {
                     UNLOCK_MG();
                     return ret;
                 }
-
-                /* No guard pages to track */
-                upper_mce->guarded_b = false;
-                upper_mce->guarded_t = false;
             }
 
             /* Initialize upper region MCE (common for both guard/no-guard cases) */
@@ -634,12 +646,13 @@ int munmap(void *addr, size_t length) {
             return 0;
         }
 
+        UNLOCK_MG();
+
         /* Unknown partial unmap case */
         LOG_AND_ABORT("Unknown partial munmap case: addr=%p, length=%zu, mce->start=%p, mce->size=%zu",
                       addr, length, mce->start, mce->size);
     }
 
-    UNLOCK_MG();
     return g_real_munmap(addr, length);
 }
 
@@ -717,7 +730,7 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
             MAYBE_PANIC();
             errno = EINVAL;
             UNLOCK_MG();
-            return MAP_FAILED; /* FIX: Return MAP_FAILED instead of NULL */
+            return MAP_FAILED;
         }
     }
 
@@ -748,7 +761,6 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
                 mce->guarded_b = false;
                 mce->guarded_t = false;
 
-                /* FIX: Remove from old hash bucket before updating start address */
                 cache_entry_remove(mce);
                 mce->start = map_ptr;
                 mce->size = __new_len;
@@ -762,7 +774,6 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
             void *ptr = g_real_mmap(expected_bottom, g_page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
             if(ptr != MAP_FAILED) {
-                /* FIX: Verify we actually got the address we wanted */
                 if(ptr == expected_bottom) {
                     mce->guarded_b = true;
                 } else {
@@ -774,7 +785,6 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
             ptr = g_real_mmap(expected_top, g_page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
             if(ptr != MAP_FAILED) {
-                /* FIX: Verify we actually got the address we wanted */
                 if(ptr == expected_top) {
                     mce->guarded_t = true;
                 } else {
@@ -784,6 +794,6 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
         }
     }
 
-    UNLOCK_MG(); /* FIX: Add missing unlock before return */
+    UNLOCK_MG();
     return map_ptr;
 }
