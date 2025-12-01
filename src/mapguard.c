@@ -713,11 +713,8 @@ int mprotect(void *addr, size_t len, int prot) {
  * mremap is a complex syscall when you consider all of the flags.
  * Instead of trying to intelligently handle these flags we just
  * transparently proxy the call and do our best to handle what the
- * kernel decides to do with the mapping.
- */
+ * kernel decides to do with the mapping. */
 void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...) {
-    LOCK_MG();
-
     void *new_address = NULL;
 
     if((__flags & MREMAP_FIXED) || (__flags & MAP_FIXED_NOREPLACE)) {
@@ -729,7 +726,6 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
             LOG("Attempted mremap with MREMAP_FIXED at %p", new_address);
             MAYBE_PANIC();
             errno = EINVAL;
-            UNLOCK_MG();
             return MAP_FAILED;
         }
     }
@@ -743,19 +739,19 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
     }
 
     if(g_mapguard_policy.use_mapping_cache && map_ptr != MAP_FAILED) {
+        LOCK_MG();
         mapguard_cache_entry_t *mce = get_cache_entry(__addr);
 
         /* We are remapping a previously tracked allocation. This
          * means we may have to reallocate guard pages and update
          * the status of our cache */
         if(mce && map_ptr != MAP_FAILED) {
-            /* mremap may just allocate new pages above the
-             * existing allocation to resize it. If it does
-             * then theres no need to unmap/remap the bottom
-             * guard page. If guard pages are configured then
-             * its probably not possible for mremap to grow
-             * the allocation in place anyway but this is a
-             * cheap check regardless */
+            /* mremap may just allocate new pages above the existing
+             * allocation to resize it. If it does then theres no
+             * need to unmap/remap the bottom guard page. If guard
+             * pages are configured then its probably not possible
+             * for mremap to grow the allocation in place anyway but
+             * this is a cheap check regardless */
             if(mce->start != map_ptr) {
                 unmap_guard_pages(mce);
                 mce->guarded_b = false;
@@ -792,8 +788,9 @@ void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...)
                 }
             }
         }
+
+        UNLOCK_MG();
     }
 
-    UNLOCK_MG();
     return map_ptr;
 }
