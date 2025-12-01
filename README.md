@@ -113,13 +113,13 @@ Performance Summary
 ================================================================
 Test                           Baseline    Minimal   Cache        Full        Overhead %  
 ====================================================================================================
-simple_alloc_free             1180504     1216705     1166271      262334        77.8%
-alloc_write_free               372601      360332      363337      260672        30.0%
-batch_alloc_then_free         1362607     1335589      820263      160123        88.2%
-varied_sizes                  1323044     1218523     1168907      199402        84.9%
-mprotect_transitions           764721      717704      681605      215372        71.8%
-large_allocations             1246041     1215745     1167713       10281        99.2%
-partial_munmap                 755382      731707      691045      177332        76.5%
+simple_alloc_free             1202369     1230700     1207353      258400        78.5%
+alloc_write_free               365176      370031      341715      254845        30.2%
+batch_alloc_then_free         1336228     1319573      820698      186382        86.1%
+varied_sizes                  1301023     1248829     1186123      202392        84.4%
+mprotect_transitions           743564      754196      694666      197813        73.4%
+large_allocations             1264090     1171818     1178666       10289        99.2%
+partial_munmap                 783827      794834      701816      176223        77.5%
 
 Raw CSV files saved in /tmp/*_perf.csv
 
