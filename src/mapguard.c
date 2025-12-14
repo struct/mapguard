@@ -318,43 +318,45 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
         return g_real_mmap(addr, length, prot, flags, fd, offset);
     }
 
-    /* Hoist common computations before lock */
+    /* Precompute values before taking lock */
     size_t rounded_length = ROUND_UP_PAGE(length);
+    const bool is_rwx = (prot & PROT_WRITE) && (prot & PROT_EXEC);
 
     /* Fast path: no policies enabled, no tracking needed */
     if(g_mapguard_policy.prevent_policies_enabled == 0 && g_mapguard_policy.actions_enabled == 0) {
         return g_real_mmap(addr, rounded_length, prot, flags, fd, offset);
     }
 
-    /* Prevent RWX mappings */
-    if(g_mapguard_policy.prevent_rwx && (prot & PROT_WRITE) && (prot & PROT_EXEC)) {
+    /* Policy checks can happen before lock - they only read immutable config */
+    if(g_mapguard_policy.prevent_rwx && is_rwx) {
         LOG("Preventing RWX memory allocation");
         MAYBE_PANIC();
         return MAP_FAILED;
     }
 
-    /* Prevent mappings at a hardcoded address as it weakens ASLR */
     if(g_mapguard_policy.prevent_static_address && addr != 0) {
         LOG("Preventing memory allocation at static address %p", addr);
         MAYBE_PANIC();
         return MAP_FAILED;
     }
 
-    /* Perform the actual mmap - branch once on guard pages */
+    /* Perform the actual mmap */
     void *map_ptr;
-    if(g_mapguard_policy.enable_guard_pages) {
-        map_ptr = g_real_mmap(addr, rounded_length + (g_page_size << 1), prot, flags, fd, offset);
-        if(map_ptr == MAP_FAILED) {
-            return MAP_FAILED;
-        }
+    size_t alloc_length = rounded_length;
 
+    if(g_mapguard_policy.enable_guard_pages) {
+        alloc_length += (g_page_size << 1);
+    }
+
+    map_ptr = g_real_mmap(addr, alloc_length, prot, flags, fd, offset);
+
+    if(map_ptr == MAP_FAILED) {
+        return MAP_FAILED;
+    }
+
+    if(g_mapguard_policy.enable_guard_pages) {
         make_guard_page(map_ptr);
         make_guard_page(map_ptr + g_page_size + rounded_length);
-    } else {
-        map_ptr = g_real_mmap(addr, rounded_length, prot, flags, fd, offset);
-        if(map_ptr == MAP_FAILED) {
-            return MAP_FAILED;
-        }
     }
 
     /* Handle cache and poisoning together to reduce branches */
@@ -398,7 +400,6 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 
 /* Hook munmap in libc */
 int munmap(void *addr, size_t length) {
-    /* Hoist all validation and computation before any locks or branches */
     if(length == 0) {
         return EINVAL;
     }
@@ -410,7 +411,7 @@ int munmap(void *addr, size_t length) {
     size_t rounded_length = ROUND_UP_PAGE(length);
 
     /* Fast path: if not tracking, just call through */
-    if(!g_mapguard_policy.use_mapping_cache) {
+    if(g_mapguard_policy.use_mapping_cache == false) {
         return g_real_munmap(addr, rounded_length);
     }
 
@@ -658,20 +659,21 @@ int munmap(void *addr, size_t length) {
 
 /* Hook mprotect in libc */
 int mprotect(void *addr, size_t len, int prot) {
-    LOCK_MG();
     mapguard_cache_entry_t *mce = NULL;
+    int32_t ret;
 
     /* Prevent RWX mappings */
     if(g_mapguard_policy.prevent_rwx && (prot & PROT_WRITE) && (prot & PROT_EXEC)) {
         LOG("Preventing RWX mprotect");
         MAYBE_PANIC();
-        UNLOCK_MG();
         return ERROR;
     }
 
     /* Prevent transition to/from X (requires the mapping cache) */
     if(g_mapguard_policy.use_mapping_cache) {
+        LOCK_MG();
         mce = get_cache_entry(addr);
+
         if(mce != NULL) {
             if(g_mapguard_policy.prevent_transition_to_x && (prot & PROT_EXEC) && (mce->immutable_prot & PROT_WRITE)) {
                 LOG("Cannot allow mapping %p to be set PROT_EXEC, it was previously PROT_WRITE", addr);
@@ -689,23 +691,26 @@ int mprotect(void *addr, size_t len, int prot) {
                 return ERROR;
             }
         }
-    }
 
-    int32_t ret = g_real_mprotect(addr, len, prot);
+        ret = g_real_mprotect(addr, len, prot);
 
-    if(ret == 0 && mce) {
-        /* Its possible the caller changed the protections on
-         * only a portion of the mapping. Log it but ignore it */
-        if(mce->size != len) {
-            LOG("Cached mapping size %zu bytes but mprotected %zu bytes", mce->size, len);
+        if(ret == 0 && mce) {
+            /* Its possible the caller changed the protections on
+            * only a portion of the mapping. Log it but ignore it */
+            if(mce->size != len) {
+                LOG("Cached mapping size %zu bytes but mprotected %zu bytes", mce->size, len);
+            }
+
+            /* Update the saved page permissions, even if the size doesn't match */
+            mce->immutable_prot |= prot;
+            mce->current_prot = prot;
         }
 
-        /* Update the saved page permissions, even if the size doesn't match */
-        mce->immutable_prot |= prot;
-        mce->current_prot = prot;
+        UNLOCK_MG();
+    } else {
+        ret = g_real_mprotect(addr, len, prot);
     }
 
-    UNLOCK_MG();
     return ret;
 }
 
