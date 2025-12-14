@@ -6,7 +6,7 @@ pthread_mutex_t _mg_mutex;
 
 mapguard_cache_metadata_t *mce_head;
 
-#define HASH_TABLE_SIZE 16384 /* Power of 2 for fast modulo */
+#define HASH_TABLE_SIZE 16384
 #define HASH_ADDR(addr) (((uintptr_t) (addr) >> 12) & (HASH_TABLE_SIZE - 1))
 
 mapguard_cache_entry_t *g_hash_table[HASH_TABLE_SIZE];
