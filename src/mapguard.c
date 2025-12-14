@@ -696,7 +696,7 @@ int mprotect(void *addr, size_t len, int prot) {
 
         if(ret == 0 && mce) {
             /* Its possible the caller changed the protections on
-            * only a portion of the mapping. Log it but ignore it */
+             * only a portion of the mapping. Log it but ignore it */
             if(mce->size != len) {
                 LOG("Cached mapping size %zu bytes but mprotected %zu bytes", mce->size, len);
             }
