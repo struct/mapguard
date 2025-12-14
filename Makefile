@@ -19,6 +19,11 @@ SRC_FILES = *.c
 BUILD_DIR = build
 STRIP = strip -s $(BUILD_DIR)/libmapguard.so
 
+UNAME := $(shell uname)
+ifeq ($(UNAME), Darwin)
+$(error MacOS not supported, mapguard is Linux only)
+endif
+
 ifeq ($(THREADS), -DTHREAD_SUPPORT=1)
 CFLAGS += -lpthread $(THREADS)
 endif

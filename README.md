@@ -64,64 +64,62 @@ Running mapguard_thread_test test... Succeeded
 Running baseline performance (no MapGuard)...
 ================================================================
 test_name,iterations,time_ms,ops_per_sec
-simple_alloc_free,10000,8.47,1180504.02
-alloc_write_free,10000,26.84,372601.38
-batch_alloc_then_free,10000,7.34,1362606.67
-varied_sizes,1000,0.76,1323043.58
-mprotect_transitions,1000,1.31,764720.68
-large_allocations,1000,0.80,1246040.71
-partial_munmap,1000,1.32,755381.72
+simple_alloc_free,10000,8.28,1207522.82
+alloc_write_free,10000,27.56,362884.76
+batch_alloc_then_free,10000,7.53,1327830.27
+varied_sizes,1000,0.75,1325820.35
+mprotect_transitions,1000,1.29,777756.17
+large_allocations,1000,0.74,1347180.55
+partial_munmap,1000,1.36,734686.38
 
 ================================================================
 Running with MapGuard (no config)...
 ================================================================
 test_name,iterations,time_ms,ops_per_sec
-simple_alloc_free,10000,8.22,1216705.32
-alloc_write_free,10000,27.75,360331.68
-batch_alloc_then_free,10000,7.49,1335589.05
-varied_sizes,1000,0.82,1218522.52
-mprotect_transitions,1000,1.39,717703.52
-large_allocations,1000,0.82,1215744.87
-partial_munmap,1000,1.37,731707.14
+simple_alloc_free,10000,8.00,1249934.85
+alloc_write_free,10000,26.70,374585.62
+batch_alloc_then_free,10000,7.58,1319130.69
+varied_sizes,1000,0.81,1228689.91
+mprotect_transitions,1000,1.33,753130.01
+large_allocations,1000,0.83,1198442.98
+partial_munmap,1000,1.31,764696.12
 
 ================================================================
 Running with MapGuard (cache enabled)...
 ================================================================
 test_name,iterations,time_ms,ops_per_sec
-simple_alloc_free,10000,8.57,1166271.34
-alloc_write_free,10000,27.52,363336.88
-batch_alloc_then_free,10000,12.19,820263.26
-varied_sizes,1000,0.86,1168907.07
-mprotect_transitions,1000,1.47,681605.18
-large_allocations,1000,0.86,1167712.74
-partial_munmap,1000,1.45,691044.89
+simple_alloc_free,10000,8.40,1190452.52
+alloc_write_free,10000,27.73,360684.77
+batch_alloc_then_free,10000,12.23,817661.49
+varied_sizes,1000,0.85,1170561.32
+mprotect_transitions,1000,1.46,685674.95
+large_allocations,1000,0.84,1190239.56
+partial_munmap,1000,1.39,721478.86
 
 ================================================================
 Running with MapGuard (full protection)...
 ================================================================
 test_name,iterations,time_ms,ops_per_sec
-simple_alloc_free,10000,38.12,262334.37
-alloc_write_free,10000,38.36,260671.51
-batch_alloc_then_free,10000,62.45,160123.29
-varied_sizes,1000,5.01,199401.79
-mprotect_transitions,1000,4.64,215372.19
-large_allocations,1000,97.27,10280.64
-partial_munmap,1000,5.64,177332.48
+simple_alloc_free,10000,38.66,258667.52
+alloc_write_free,10000,38.82,257607.74
+batch_alloc_then_free,10000,56.12,178201.50
+varied_sizes,1000,5.17,193604.62
+mprotect_transitions,1000,4.84,206417.86
+large_allocations,1000,97.63,10243.05
+partial_munmap,1000,6.01,166516.33
 
 ================================================================
 Performance Summary
 ================================================================
 Test                           Baseline    Minimal   Cache        Full        Overhead %  
 ====================================================================================================
-simple_alloc_free             1101473     1238659     1179982      261329        76.3%
-alloc_write_free               368076      362900      362248      258308        29.8%
-batch_alloc_then_free         1313413     1278119      817528      184382        86.0%
-varied_sizes                  1264889     1296245     1230012      205349        83.8%
-mprotect_transitions           777253      751009      700321      218814        71.8%
-large_allocations             1361239     1182440     1242108       10463        99.2%
-partial_munmap                 808789      770713      732578      173462        78.6%
-
-Raw CSV files saved in /tmp/*_perf.csv
+simple_alloc_free             1207523     1249935     1190453      258668        78.6%
+alloc_write_free               362885      374586      360685      257608        29.0%
+batch_alloc_then_free         1327830     1319131      817661      178202        86.6%
+varied_sizes                  1325820     1228690     1170561      193605        85.4%
+mprotect_transitions           777756      753130      685675      206418        73.5%
+large_allocations             1347181     1198443     1190240       10243        99.2%
+partial_munmap                 734686      764696      721479      166516        77.3%
 
 # ./run_fuzz_tests
 ...
