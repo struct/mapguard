@@ -21,7 +21,7 @@ STRIP = strip -s $(BUILD_DIR)/libmapguard.so
 
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
-$(error MacOS not supported, mapguard is Linux only)
+# $(error MacOS not supported, mapguard is Linux only)
 endif
 
 ifeq ($(THREADS), -DTHREAD_SUPPORT=1)

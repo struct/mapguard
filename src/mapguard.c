@@ -4,6 +4,21 @@
 
 pthread_mutex_t _mg_mutex;
 
+/* Leak tracking global structures */
+static leak_entry_t *leak_hash[HASH_TABLE_SIZE];
+static leak_entry_t *leak_list_head = NULL;
+static leak_entry_t *leak_list_tail = NULL;
+
+static mapguard_stats_t g_stats = {0};
+
+static unsigned int mg_snapshot_interval_ms = 500; // default 500 ms
+static unsigned int mg_observe_count = 5; // default observation count
+static uint64_t mg_growth_threshold_bytes = 1024 * 1024; // 1 MiB default
+
+static pthread_t snapshot_thread;
+static volatile int snapshot_thread_running = 0;
+
+
 mapguard_cache_metadata_t *mce_head;
 
 #define HASH_TABLE_SIZE 16384
@@ -25,6 +40,21 @@ int (*g_real_mprotect)(void *addr, size_t len, int prot);
 void *(*g_real_mremap)(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...);
 
 __attribute__((constructor)) void mapguard_ctor() {
+    // Initialize leak tracking hash table
+    for (int i = 0; i < HASH_TABLE_SIZE; ++i) {
+        leak_hash[i] = NULL;
+    }
+    // Load configuration from environment
+    char *env;
+    env = getenv("MG_SNAPSHOT_INTERVAL_MS");
+    if (env) mg_snapshot_interval_ms = (unsigned int)atoi(env);
+    env = getenv("MG_OBSERVE_COUNT");
+    if (env) mg_observe_count = (unsigned int)atoi(env);
+    env = getenv("MG_GROWTH_THRESHOLD_BYTES");
+    if (env) mg_growth_threshold_bytes = (uint64_t)atoll(env);
+    // Start snapshot thread
+    mg_init_snapshot_thread();
+
 #if THREAD_SUPPORT
     pthread_mutex_init(&_mg_mutex, NULL);
 #endif
@@ -194,6 +224,10 @@ mapguard_cache_entry_t *find_free_mce() {
 }
 
 __attribute__((destructor)) void mapguard_dtor() {
+    // Stop snapshot thread before reporting
+    mg_stop_snapshot_thread();
+    // Generate final report
+    mg_report();
     LOCK_MG();
 
     if(g_mapguard_policy.enable_syslog) {
@@ -400,6 +434,154 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 
 /* Hook munmap in libc */
 int munmap(void *addr, size_t length) {
+    if(length == 0) {
+        return EINVAL;
+    }
+
+    if(((uintptr_t) addr & (g_page_size - 1)) != 0) {
+        return EINVAL;
+    }
+
+    size_t rounded_length = ROUND_UP_PAGE(length);
+
+    /* Fast path when mapping cache disabled */
+    if(g_mapguard_policy.use_mapping_cache == false) {
+        int ret = g_real_munmap(addr, rounded_length);
+        if(ret == 0) {
+            mg_record_unmap(addr, rounded_length);
+        }
+        return ret;
+    }
+
+    /* Mapping cache enabled – locate cache entry */
+    LOCK_MG();
+    mapguard_cache_entry_t *mce = get_cache_entry(addr);
+    if(mce == NULL) {
+        UNLOCK_MG();
+        LOG_AND_ABORT("No mapguard cache entry found for address %p", addr);
+    }
+
+    /* Normalize length to page size for internal calculations */
+    size_t length_pages = rounded_length;
+    void *original_start = addr;
+    int32_t ret = 0;
+
+    /* Cases as in original code – we keep the same logic but add tracking */
+    if(mce->start == addr && mce->size == length_pages) {
+        // Full unmap
+        if(g_mapguard_policy.enable_guard_pages && mce->guarded_b) {
+            length_pages += g_page_size;
+            addr = (void *)((uintptr_t)addr - g_page_size);
+        }
+        if(g_mapguard_policy.enable_guard_pages && mce->guarded_t) {
+            length_pages += g_page_size;
+        }
+        ret = g_real_munmap(addr, length_pages);
+        if(ret == 0) {
+            // Remove from leak tracking (full)
+            mg_record_unmap(mce->start, mce->size);
+            // Delete cache entry
+            cache_entry_remove(mce);
+            mapguard_cache_metadata_t *metadata = (mapguard_cache_metadata_t *) ROUND_DOWN_PAGE((uintptr_t) mce);
+            metadata->free++;
+            memset(mce, 0, sizeof(mapguard_cache_entry_t));
+        }
+    } else if(mce->start == addr && length_pages < mce->size) {
+        // Partial unmap from beginning
+        if(mce->guarded_b) {
+            void *unmap_addr = addr - g_page_size;
+            ret = g_real_munmap(unmap_addr, length_pages);
+            if(ret == 0) {
+                // Adjust guard pages and entry start
+                void *new_guard_addr = unmap_addr + length_pages;
+                g_real_mprotect(new_guard_addr, g_page_size, PROT_READ | PROT_WRITE);
+                memset(new_guard_addr, 0, g_page_size);
+                make_guard_page(new_guard_addr);
+                // Update leak tracking – shrink entry start and size
+                mg_record_unmap(mce->start, length_pages);
+                mce->start = new_guard_addr + g_page_size;
+                mce->size -= length_pages;
+                mce->guarded_b = true; // guard remains
+                cache_entry_remove(mce);
+                cache_entry_insert(mce);
+            }
+        } else {
+            ret = g_real_munmap(addr, length_pages);
+            if(ret == 0) {
+                mg_record_unmap(mce->start, length_pages);
+                mce->start = (void *)((uintptr_t)mce->start + length_pages);
+                mce->size -= length_pages;
+                cache_entry_remove(mce);
+                cache_entry_insert(mce);
+            }
+        }
+    } else if(addr >= mce->start && (addr + length_pages) == (void *)((uintptr_t)mce->start + mce->size)) {
+        // Partial unmap from end
+        if(g_mapguard_policy.enable_guard_pages && mce->guarded_t) {
+            ret = g_real_munmap(addr + g_page_size, length_pages);
+            if(ret == 0) {
+                mg_record_unmap(mce->start, length_pages);
+                // Recreate top guard page at new end
+                g_real_mprotect(mce->start, g_page_size, PROT_READ | PROT_WRITE);
+                memset(mce->start, 0, g_page_size);
+                make_guard_page(mce->start);
+                mce->size = (size_t)((uintptr_t)addr - (uintptr_t)mce->start);
+                mce->guarded_t = true;
+            }
+        } else {
+            ret = g_real_munmap(addr, length_pages);
+            if(ret == 0) {
+                mg_record_unmap(mce->start, length_pages);
+                mce->size = (size_t)((uintptr_t)addr - (uintptr_t)mce->start);
+            }
+        }
+    } else if(addr >= mce->start && (addr + length_pages) < (void *)((uintptr_t)mce->start + mce->size)) {
+        // Split case – unmap a middle hole
+        // Allocate a new leak entry for the upper region
+        leak_entry_t *upper = NULL;
+        size_t lower_size = (size_t)((uintptr_t)addr - (uintptr_t)mce->start);
+        size_t upper_size = (size_t)((uintptr_t)mce->start + mce->size - ((uintptr_t)addr + length_pages));
+        void *upper_start = (void *)((uintptr_t)addr + length_pages);
+
+        // Perform the actual unmap of the middle region
+        ret = g_real_munmap(addr, length_pages);
+        if(ret == 0) {
+            // Update stats for removed middle part
+            mg_record_unmap(addr, length_pages);
+            // Adjust current entry to lower part
+            mce->size = lower_size;
+            // Create upper leak entry if size > 0
+            if (upper_size > 0) {
+                upper = leak_entry_alloc();
+                if (!upper) {
+                    mg_write_warning("MapGuard: leak‑tracking capacity exhausted while splitting\n");
+                } else {
+                    upper->addr = upper_start;
+                    upper->size = upper_size;
+                    upper->alloc_ts = mce->alloc_ts;
+                    upper->call_site = mce->call_site;
+                    upper->guarded_b = false;
+                    upper->guarded_t = false;
+                    // Insert into hash and list
+                    leak_entry_insert(upper);
+                    // Update stats for new upper region
+                    LOCK_MG();
+                    g_stats.current_bytes += upper_size;
+                    g_stats.outstanding += 1;
+                    UNLOCK_MG();
+                }
+            }
+            // Update stats for lower region (size already reflected)
+        }
+    } else {
+        // Unknown case – fallback to real munmap
+        ret = g_real_munmap(addr, length_pages);
+    }
+
+    UNLOCK_MG();
+    return ret;
+}
+
     if(length == 0) {
         return EINVAL;
     }
@@ -720,6 +902,86 @@ int mprotect(void *addr, size_t len, int prot) {
  * transparently proxy the call and do our best to handle what the
  * kernel decides to do with the mapping. */
 void *mremap(void *__addr, size_t __old_len, size_t __new_len, int __flags, ...) {
+    void *new_address = NULL;
+    void *map_ptr = NULL;
+    int need_update = 0;
+
+    if((__flags & MREMAP_FIXED) || (__flags & MAP_FIXED_NOREPLACE)) {
+        va_list vl;
+        va_start(vl, __flags);
+        new_address = va_arg(vl, void *);
+        va_end(vl);
+        if(g_mapguard_policy.prevent_static_address) {
+            LOG("Attempted mremap with MREMAP_FIXED at %p", new_address);
+            MAYBE_PANIC();
+            errno = EINVAL;
+            return MAP_FAILED;
+        }
+    }
+
+    if(new_address != NULL) {
+        map_ptr = g_real_mremap(__addr, __old_len, __new_len, __flags, new_address);
+    } else {
+        map_ptr = g_real_mremap(__addr, __old_len, __new_len, __flags);
+    }
+
+    if(g_mapguard_policy.use_mapping_cache && map_ptr != MAP_FAILED) {
+        LOCK_MG();
+        mapguard_cache_entry_t *mce = get_cache_entry(__addr);
+        if(mce) {
+            // Preserve timestamp and call site
+            uint64_t old_ts = 0;
+            uintptr_t old_site = 0;
+            leak_entry_t *le = leak_entry_find(mce->start);
+            if(le) {
+                old_ts = le->alloc_ts;
+                old_site = le->call_site;
+            }
+            // Remove old leak entry
+            if(le) {
+                // Reduce stats for old size
+                g_stats.current_bytes -= le->size;
+                g_stats.outstanding -= 1;
+                leak_entry_remove(le);
+            }
+            // Update cache entry
+            if(mce->start != map_ptr) {
+                // Relocated – reset guard flags
+                unmap_guard_pages(mce);
+                mce->guarded_b = false;
+                mce->guarded_t = false;
+                cache_entry_remove(mce);
+                mce->start = map_ptr;
+                mce->size = __new_len;
+                cache_entry_insert(mce);
+            } else {
+                mce->size = __new_len;
+            }
+            // Insert new leak entry with preserved timestamp/site
+            leak_entry_t *new_le = leak_entry_alloc();
+            if(new_le) {
+                new_le->addr = mce->start;
+                new_le->size = mce->size;
+                new_le->alloc_ts = old_ts ? old_ts : now_nsec();
+                new_le->call_site = old_site ? old_site : (uintptr_t)__builtin_return_address(0);
+                new_le->guarded_b = mce->guarded_b;
+                new_le->guarded_t = mce->guarded_t;
+                leak_entry_insert(new_le);
+                // Update stats for new entry
+                g_stats.current_bytes += new_le->size;
+                g_stats.outstanding += 1;
+                if(g_stats.current_bytes > g_stats.peak_bytes)
+                    g_stats.peak_bytes = g_stats.current_bytes;
+            } else {
+                mg_write_warning("MapGuard: leak‑tracking capacity exhausted in mremap\n");
+            }
+        }
+        UNLOCK_MG();
+    }
+
+    return map_ptr;
+}
+
     void *new_address = NULL;
 
     if((__flags & MREMAP_FIXED) || (__flags & MAP_FIXED_NOREPLACE)) {

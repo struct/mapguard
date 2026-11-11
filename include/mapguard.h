@@ -131,6 +131,67 @@ typedef struct mapguard_cache_entry {
     /* Tracks which entry this is, uint16_t because pages could be 16k */
     uint16_t idx;
     size_t size;
+    uint64_t alloc_timestamp; // allocation time in nanoseconds monotonic epoch
+    uintptr_t call_site; // return address of allocation site
+    bool guarded_b;
+    bool guarded_t;
+    int32_t immutable_prot;
+    int32_t current_prot;
+    struct mapguard_cache_entry *hash_next; /* For hash table chaining */
+} mapguard_cache_entry_t;
+
+/* Leak tracking entry – independent of cache */
+typedef struct leak_entry {
+    void *addr;                 // start address of mapping (after guard pages if any)
+    size_t size;                // size of the mapping (rounded to page size)
+    uint64_t alloc_ts;          // allocation timestamp (ns monotonic)
+    uintptr_t call_site;        // return address of allocation site
+    bool guarded_b;             // bottom guard page present
+    bool guarded_t;             // top guard page present
+    struct leak_entry *next;    // linked list for iteration
+    struct leak_entry *prev;    // doubly linked list
+    struct leak_entry *hash_next; // hash bucket chaining
+} leak_entry_t;
+
+/* Global leak tracking hash table and list */
+extern leak_entry_t *leak_hash[HASH_TABLE_SIZE];
+extern leak_entry_t *leak_list_head;
+extern leak_entry_t *leak_list_tail;
+
+/* Snapshot statistics */
+#define MG_MAX_OBSERVE 64
+typedef struct {
+    uint64_t current_bytes;
+    uint64_t peak_bytes;
+    uint64_t total_allocs;
+    uint64_t outstanding;
+    uint64_t snap_bytes[MG_MAX_OBSERVE];
+    uint64_t snap_ts[MG_MAX_OBSERVE];
+    size_t snap_idx;
+    size_t valid_snapshots;
+} mapguard_stats_t;
+extern mapguard_stats_t g_stats;
+
+/* Configuration defaults */
+extern unsigned int mg_snapshot_interval_ms;
+extern unsigned int mg_observe_count;
+extern uint64_t mg_growth_threshold_bytes;
+
+/* Function prototypes */
+void mg_init_snapshot_thread(void);
+void mg_stop_snapshot_thread(void);
+void mg_record_allocation(void *addr, size_t size, bool guarded_b, bool guarded_t);
+void mg_record_unmap(void *addr, size_t size);
+void mg_report(void);
+void mg_snapshot(void);
+void mg_write_warning(const char *msg);
+
+    void *start;
+    /* Tracks which entry this is, uint16_t because pages could be 16k */
+    uint16_t idx;
+    size_t size;
+    uint64_t alloc_timestamp; // allocation time in nanoseconds since monotonic epoch
+    uintptr_t call_site; // return address of allocation site
     bool guarded_b;
     bool guarded_t;
     int32_t immutable_prot;
