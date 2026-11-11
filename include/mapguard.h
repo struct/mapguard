@@ -14,6 +14,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
+#include <time.h>
 
 #if THREAD_SUPPORT
 #include <pthread.h>
@@ -26,14 +27,13 @@
 #define ERROR -1
 #define GUARD_PAGE_COUNT 2
 
-/* If you want to log security policy violations then
- * modifying this macro is the easiest way to do it */
+/* Keep ALL existing LOG macros exactly as they are */
 #if DEBUG
-#define LOG_ERROR(msg, ...)                                                                                    \
+#define LOG_ERROR(msg, ...) \
     fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__); \
     fflush(stderr);
 
-#define LOG(msg, ...)                                                                  \
+#define LOG(msg, ...) \
     fprintf(stdout, "[LOG][%d](%s) " msg "\n", getpid(), __FUNCTION__, ##__VA_ARGS__); \
     fflush(stdout);
 #else
@@ -41,62 +41,48 @@
 #define LOG(msg, ...) SYSLOG(msg, ##__VA_ARGS__)
 #endif
 
-#define LOG_AND_ABORT(msg, ...)                                                                                \
+#define LOG_AND_ABORT(msg, ...) \
     fprintf(stderr, "[LOG][%d](%s) (%s) - " msg "\n", getpid(), __FUNCTION__, strerror(errno), ##__VA_ARGS__); \
-    fflush(stderr);                                                                                            \
+    fflush(stderr); \
     abort();
 
-#define SYSLOG(msg, ...)                       \
-    if(g_mapguard_policy.enable_syslog) {      \
+#define SYSLOG(msg, ...) \
+    if(g_mapguard_policy.enable_syslog) { \
         syslog(LOG_ALERT, msg, ##__VA_ARGS__); \
     }
 
-/* MapGuard Environment variable configurations */
-
-/* Prevent PROT_READ, PROT_WRITE, PROT_EXEC mappings */
+/* Keep ALL existing environment variable defines */
 #define MG_PREVENT_RWX "MG_PREVENT_RWX"
-/* Prevent RW- allocations to ever transition to PROT_EXEC */
 #define MG_PREVENT_TRANSITION_TO_X "MG_PREVENT_TRANSITION_TO_X"
-/* Prevent R-X allocations to ever transition to PROT_WRITE */
 #define MG_PREVENT_TRANSITION_FROM_X "MG_PREVENT_TRANSITION_FROM_X"
-/* Prevent page allocations at a set address (enforces ASLR) */
 #define MG_PREVENT_STATIC_ADDRESS "MG_PREVENT_STATIC_ADDRESS"
-/* Force top and bottom guard page allocations */
 #define MG_ENABLE_GUARD_PAGES "MG_ENABLE_GUARD_PAGES"
-/* Abort the process when security policies are violated */
 #define MG_PANIC_ON_VIOLATION "MG_PANIC_ON_VIOLATION"
-/* Fill all allocated pages with a byte pattern 0xde */
 #define MG_POISON_ON_ALLOCATION "MG_POISON_ON_ALLOCATION"
-/* Enable the mapping cache, required for guard page allocation */
 #define MG_USE_MAPPING_CACHE "MG_USE_MAPPING_CACHE"
-/* Enable telemetry via syslog */
 #define MG_ENABLE_SYSLOG "MG_ENABLE_SYSLOG"
 
 #define ENV_TO_INT(env, config) \
-    if(env_to_int(env)) {       \
-        config = 1;             \
+    if(env_to_int(env)) { \
+        config = 1; \
     }
 
-#define MAYBE_PANIC()                          \
+#define MAYBE_PANIC() \
     if(g_mapguard_policy.panic_on_violation) { \
-        abort();                               \
+        abort(); \
     }
 
 #define ROUND_UP_PAGE(N) (((N) + g_page_size - 1) & ~(g_page_size - 1))
 #define ROUND_DOWN_PAGE(N) ((N) & ~(g_page_size - 1))
 
-/* Branch prediction hints for hot paths */
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
 extern pthread_mutex_t _mg_mutex;
 
 #if THREAD_SUPPORT
-#define LOCK_MG() \
-    pthread_mutex_lock(&_mg_mutex);
-
-#define UNLOCK_MG() \
-    pthread_mutex_unlock(&_mg_mutex);
+#define LOCK_MG() pthread_mutex_lock(&_mg_mutex);
+#define UNLOCK_MG() pthread_mutex_unlock(&_mg_mutex);
 #else
 #define LOCK_MG()
 #define UNLOCK_MG()
@@ -104,6 +90,7 @@ extern pthread_mutex_t _mg_mutex;
 
 #define MG_POISON_BYTE 0xde
 
+/* Keep original policy struct exactly */
 typedef struct {
     uint8_t prevent_rwx;
     uint8_t prevent_transition_to_x;
@@ -118,94 +105,95 @@ typedef struct {
     uint8_t enable_syslog;
 } mapguard_policy_t;
 
+extern mapguard_policy_t g_mapguard_policy;
+
+/* Keep original cache metadata struct exactly */
 typedef struct {
-    void *next; /* Points to the next [mapguard_cache_metadata_t ... mapguard_cache_entry_t ... n] */
+    void *next;
     bool full;
     uint32_t total;
     uint32_t free;
 } mapguard_cache_metadata_t;
 
-/* TODO - This structure is not thread safe */
+/* Keep original cache entry struct - add alloc_ts and call_site fields */
 typedef struct mapguard_cache_entry {
     void *start;
-    /* Tracks which entry this is, uint16_t because pages could be 16k */
     uint16_t idx;
     size_t size;
-    uint64_t alloc_timestamp; // allocation time in nanoseconds monotonic epoch
-    uintptr_t call_site; // return address of allocation site
+    uint64_t alloc_ts;      /* allocation timestamp (ns monotonic) */
+    uintptr_t call_site;    /* return address of caller */
     bool guarded_b;
     bool guarded_t;
     int32_t immutable_prot;
     int32_t current_prot;
-    struct mapguard_cache_entry *hash_next; /* For hash table chaining */
+    struct mapguard_cache_entry *hash_next;
 } mapguard_cache_entry_t;
 
-/* Leak tracking entry – independent of cache */
-typedef struct leak_entry {
-    void *addr;                 // start address of mapping (after guard pages if any)
-    size_t size;                // size of the mapping (rounded to page size)
-    uint64_t alloc_ts;          // allocation timestamp (ns monotonic)
-    uintptr_t call_site;        // return address of allocation site
-    bool guarded_b;             // bottom guard page present
-    bool guarded_t;             // top guard page present
-    struct leak_entry *next;    // linked list for iteration
-    struct leak_entry *prev;    // doubly linked list
-    struct leak_entry *hash_next; // hash bucket chaining
-} leak_entry_t;
+/* ===== LEAK TRACKER (independent of security cache) ===== */
 
-/* Global leak tracking hash table and list */
-extern leak_entry_t *leak_hash[HASH_TABLE_SIZE];
-extern leak_entry_t *leak_list_head;
-extern leak_entry_t *leak_list_tail;
+#define MG_LEAK_POOL_SIZE 8192
+#define MG_LEAK_HASH_SIZE 4096
+#define MG_LEAK_HASH(addr) (((uintptr_t)(addr) >> 12) & (MG_LEAK_HASH_SIZE - 1))
 
-/* Snapshot statistics */
-#define MG_MAX_OBSERVE 64
+typedef struct mg_leak_entry {
+    void *addr;                    /* start address of mapping */
+    size_t size;                   /* size in bytes */
+    uint64_t alloc_ts;             /* allocation timestamp (ns monotonic) */
+    uintptr_t call_site;           /* return address of caller */
+    bool in_use;                   /* whether this pool slot is active */
+    struct mg_leak_entry *next;    /* linked list for iteration */
+    struct mg_leak_entry *prev;    /* doubly linked list */
+    struct mg_leak_entry *hash_next; /* hash bucket chain */
+} mg_leak_entry_t;
+
+/* Snapshot ring buffer for growth detection */
+#define MG_MAX_SNAPSHOTS 64
+
 typedef struct {
-    uint64_t current_bytes;
-    uint64_t peak_bytes;
-    uint64_t total_allocs;
-    uint64_t outstanding;
-    uint64_t snap_bytes[MG_MAX_OBSERVE];
-    uint64_t snap_ts[MG_MAX_OBSERVE];
-    size_t snap_idx;
-    size_t valid_snapshots;
-} mapguard_stats_t;
-extern mapguard_stats_t g_stats;
+    uint64_t current_bytes;              /* current total mapped bytes */
+    uint64_t peak_bytes;                 /* peak total mapped bytes */
+    uint64_t total_allocs;               /* total mmap calls tracked */
+    uint64_t outstanding;                /* current outstanding mapping count */
+    uint64_t snap_bytes[MG_MAX_SNAPSHOTS]; /* snapshot ring buffer: bytes */
+    uint64_t snap_ts[MG_MAX_SNAPSHOTS];    /* snapshot ring buffer: timestamps */
+    size_t snap_write_idx;               /* next write position in ring */
+    size_t valid_snapshots;              /* how many valid snapshots we have */
+    bool growth_warning_issued;          /* prevent repeated warnings */
+    bool pool_exhausted;                 /* tracking pool ran out */
+} mg_tracker_stats_t;
 
-/* Configuration defaults */
-extern unsigned int mg_snapshot_interval_ms;
-extern unsigned int mg_observe_count;
-extern uint64_t mg_growth_threshold_bytes;
+/* ===== FUNCTION PROTOTYPES ===== */
 
-/* Function prototypes */
-void mg_init_snapshot_thread(void);
-void mg_stop_snapshot_thread(void);
-void mg_record_allocation(void *addr, size_t size, bool guarded_b, bool guarded_t);
-void mg_record_unmap(void *addr, size_t size);
-void mg_report(void);
-void mg_snapshot(void);
-void mg_write_warning(const char *msg);
-
-    void *start;
-    /* Tracks which entry this is, uint16_t because pages could be 16k */
-    uint16_t idx;
-    size_t size;
-    uint64_t alloc_timestamp; // allocation time in nanoseconds since monotonic epoch
-    uintptr_t call_site; // return address of allocation site
-    bool guarded_b;
-    bool guarded_t;
-    int32_t immutable_prot;
-    int32_t current_prot;
-    struct mapguard_cache_entry *hash_next; /* For hash table chaining */
-} mapguard_cache_entry_t;
-
+/* Original functions */
 mapguard_cache_metadata_t *new_mce_page();
-mapguard_cache_metadata_t *get_mce_metadata_page(mapguard_cache_entry_t *mce);
 mapguard_cache_entry_t *find_free_mce();
 mapguard_cache_entry_t *get_cache_entry(void *addr);
-void *is_mapguard_entry_cached(void *p, void *data);
 int32_t env_to_int(char *string);
 uint64_t rand_uint64(void);
-void mark_guard_page(void *p);
 void *allocate_guard_page(void *p);
 void make_guard_page(void *p);
+void unmap_guard_pages(mapguard_cache_entry_t *mce);
+void cache_entry_insert(mapguard_cache_entry_t *mce);
+void cache_entry_remove(mapguard_cache_entry_t *mce);
+
+/* Leak tracker functions */
+void mg_tracker_init(void);
+void mg_tracker_record_alloc(void *addr, size_t size, uintptr_t call_site);
+void mg_tracker_record_free(void *addr, size_t size);
+void mg_tracker_record_partial_free(void *addr, size_t free_size, void *remaining_addr, size_t remaining_size);
+void mg_tracker_record_split(void *orig_addr, void *lower_addr, size_t lower_size, void *upper_addr, size_t upper_size, uint64_t orig_ts, uintptr_t orig_site);
+void mg_tracker_record_remap(void *old_addr, void *new_addr, size_t old_size, size_t new_size);
+void mg_tracker_take_snapshot(void);
+bool mg_tracker_check_growth(void);
+void mg_tracker_generate_report(void);
+
+/* Snapshot thread */
+void mg_snapshot_thread_start(void);
+void mg_snapshot_thread_stop(void);
+
+/* Timestamp helper */
+static inline uint64_t mg_now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+}
